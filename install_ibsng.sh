@@ -33,48 +33,11 @@ for pkg in docker docker.io containerd runc; do
 done
 
 # Install packages required to add the Docker repository
-apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail apt-utils
+apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail apt-utils
 
-# --- Download and extract latest release from a GitHub project ---
-print_step "Downloading and extracting latest GitHub release"
-
-# !!! IMPORTANT: Replace with your target repository's owner and name !!!
-GITHUB_OWNER="ArashAfkandeh"
-GITHUB_REPO="iBsng-Installer"
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-# Define where to extract the files
-EXTRACT_DIR="/root/${GITHUB_REPO}"
-
-echo "Fetching latest release URL for ${GITHUB_OWNER}/${GITHUB_REPO}..."
-
-# Use GitHub API to get the URL of the .tar.gz for the latest release
-LATEST_RELEASE_URL=$(curl -s "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest" | jq -r '.tarball_url')
-
-# Check if the URL was fetched successfully
-if [ -z "$LATEST_RELEASE_URL" ] || [ "$LATEST_RELEASE_URL" == "null" ]; then
-  echo "Error: Could not find the latest release URL."
-  echo "Please check the repository owner/name and ensure it has published releases."
-  exit 1
+if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
+    echo "Error cloning repository, continuing..."
 fi
-
-echo "Latest release URL: ${LATEST_RELEASE_URL}"
-echo "Downloading archive..."
-
-# Create a temporary file to download the archive
-TEMP_ARCHIVE=$(mktemp)
-wget -q -O "$TEMP_ARCHIVE" "$LATEST_RELEASE_URL"
-
-echo "Extracting archive to ${EXTRACT_DIR}..."
-mkdir -p "$EXTRACT_DIR"
-# Extract the archive, strip the top-level directory, and place contents in EXTRACT_DIR
-tar -xzf "$TEMP_ARCHIVE" -C "$EXTRACT_DIR" --strip-components=1
-
-# Clean up the temporary archive file
-rm "$TEMP_ARCHIVE"
-
-echo "Successfully extracted project to ${EXTRACT_DIR}"
-# --- End of GitHub download section ---
 
 sudo pip3 install pyTelegramBotAPI jdatetime
 
@@ -425,9 +388,9 @@ fi
 
 # Final check: Create the config file only if BOTH variables have a value
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-  CONFIG_DIR="/root/iBsng-Installer"
-  CONFIG_FILE="${CONFIG_DIR}/config.json"
-  mkdir -p "$CONFIG_DIR"
+  BACKUP_DIR="/root/backup_ibsng"
+  CONFIG_FILE="${BACKUP_DIR}/config.json"
+  mkdir -p "$BACKUP_DIR"
 
   # Create the config.json file
   cat <<EOF > "$CONFIG_FILE"
@@ -446,28 +409,90 @@ else
 fi
 # --- END: Telegram Bot Config ---
 
-# Install and enable the backup systemd service
+SOURCE_DIR="/root/iBsng-Installer"
+
+# List of essential files to copy
+ESSENTIAL_FILES=(
+    "backup_ibsng.sh"
+    "main.py"
+    "restore_ibsng.sh"
+)
+
+# Copy each file with error handling
+for file in "${ESSENTIAL_FILES[@]}"; do
+    if [ -f "$SOURCE_DIR/$file" ]; then
+        if ! cp "$SOURCE_DIR/$file" "$BACKUP_DIR/"; then
+            echo "Error: Failed to copy $file" >&2
+        else
+            # Set executable permissions
+            if ! chmod +x "$BACKUP_DIR/$file"; then
+                echo "Warning: Failed to make $file executable" >&2
+            fi
+        fi
+    else
+        echo "Warning: Source file $file not found" >&2
+    fi
+done
+# --- END: Copy Essential Files ---
+
+# --- START: Service Installation ---
 print_step "Installing and Enabling Backup Service"
 
-# Define the source and destination for the service file
-SERVICE_SRC_DIR="/root/iBsng-Installer"
-SERVICE_SRC_FILE="/root/iBsng-Installer/backup-ibsng.service"
-SERVICE_DEST_DIR="/etc/systemd/system/"
+# Create service file with error handling
+if ! sudo tee /etc/systemd/system/ibsng-backup.service > /dev/null << 'EOL'
+[Unit]
+Description=IBSng Backup Service with Telegram Integration
+After=network-online.target
+Wants=network-online.target
 
-# Check if the source service file exists
-if [ -f "$SERVICE_SRC_FILE" ]; then
-  echo "Moving service file to ${SERVICE_DEST_DIR}..."
-  mv "$SERVICE_SRC_FILE" "$SERVICE_DEST_DIR"
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 $BACKUP_DIR/main.py
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
 
-  echo "Reloading, enabling, and starting the backup service..."
-  
-  sudo systemctl daemon-reload && sudo systemctl enable backup-ibsng.service && sudo systemctl start backup-ibsng.service
-
-  echo "Backup service has been successfully installed and started."
+[Install]
+WantedBy=multi-user.target
+EOL
+then
+    echo "Error: Failed to create service file" >&2
 else
-  echo "Warning: Service file ${SERVICE_SRC_FILE} not found. Skipping backup service installation."
-  ls $SERVICE_SRC_DIR
+    # Set secure permissions (640: root:root)
+    sudo chmod 640 /etc/systemd/system/ibsng-backup.service || echo "Warning: Failed to set permissions" >&2
+    sudo chown root:root /etc/systemd/system/ibsng-backup.service || echo "Warning: Failed to set ownership" >&2
+
+    # Reload and enable service with error handling
+    if ! sudo systemctl daemon-reload; then
+        echo "Error: Failed to reload systemd daemon" >&2
+    fi
+    
+    if ! sudo systemctl enable ibsng-backup.service; then
+        echo "Error: Failed to enable service" >&2
+    fi
+    
+    if ! sudo systemctl start ibsng-backup.service; then
+        echo "Error: Failed to start service" >&2
+    fi
 fi
+# --- END: Service Installation ---
+
+# --- START: Cleanup Source Directory ---
+print_step "Cleaning up source directory"
+
+if [ -d "$SOURCE_DIR" ]; then
+    echo "Removing source directory: $SOURCE_DIR"
+    if ! sudo rm -rf "$SOURCE_DIR"; then
+        echo "Error: Failed to remove source directory" >&2
+    else
+        echo "Source directory successfully removed"
+    fi
+else
+    echo "Source directory not found, skipping removal"
+fi
+# --- END: Cleanup Source Directory ---
+
+echo "Script execution completed (with any possible warnings)"
 
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
