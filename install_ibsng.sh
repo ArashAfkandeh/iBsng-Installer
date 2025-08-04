@@ -449,23 +449,23 @@ fi
 # Install and enable the backup systemd service
 print_step "Installing and Enabling Backup Service"
 
-# Define the source and destination for the service file
-SERVICE_SRC_FILE="/root/iBsng-Installer/backup-ibsng.service"
-SERVICE_DEST_DIR="/etc/systemd/system/"
+sudo tee /etc/systemd/system/ibsng-backup.service > /dev/null << 'EOL'
+[Unit]
+Description=IBSng Backup Service with Telegram Integration After=network-online.target Wants=network-online.target
+After=network.target
 
-# Check if the source service file exists
-if [ -f "$SERVICE_SRC_FILE" ]; then
-  echo "Moving service file to ${SERVICE_DEST_DIR}..."
-  mv "$SERVICE_SRC_FILE" "$SERVICE_DEST_DIR"
+[Service]
+Type=simple
+ExecStart=/usr/bin/ python3 /root/ibsng_backup/main.py
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
 
-  echo "Reloading, enabling, and starting the backup service..."
-  
-  sudo systemctl daemon-reload && sudo systemctl enable backup-ibsng.service && sudo systemctl start backup-ibsng.service
+[Install]
+WantedBy=multi-user.target
+EOL
 
-  echo "Backup service has been successfully installed and started."
-else
-  echo "Warning: Service file ${SERVICE_SRC_FILE} not found. Skipping backup service installation."
-fi
+sudo systemctl daemon-reload && sudo systemctl enable ibsng-backup.service && sudo systemctl start ibsng-backup.service
 
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
