@@ -205,6 +205,11 @@ RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 # Export variables to make them available in subshells
 export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
 
+# Clean and store port values
+WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n' | tr -d ' ')
+RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n' | tr -d ' ')
+RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n' | tr -d ' ')
+
 # Show selected ports
 echo -e "\nSelected ports:"
 echo "Web Panel Port: ${WEB_PORT}"
@@ -391,22 +396,17 @@ fi
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
-# Store the port values for final display
-FINAL_WEB_PORT=$(echo "${WEB_PORT}" | tr -d '\n')
-FINAL_AUTH_PORT=$(echo "${RADIUS_AUTH_PORT}" | tr -d '\n')
-FINAL_ACCT_PORT=$(echo "${RADIUS_ACCT_PORT}" | tr -d '\n')
-
 # Print system access information
 print_step "System Access Information"
 echo "IBSng has been successfully installed on this server."
-echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${FINAL_WEB_PORT}/IBSng/admin/\e[0m"
+echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
 echo -e "Default Username: \e[33msystem\e[0m"
 echo -e "Default Password: \e[31madmin\e[0m"
 echo ""
 echo "Your RADIUS Ports:"
-echo -e "iBsng Web-Panel Port (TCP): \e[36m${FINAL_WEB_PORT}\e[0m"
-echo -e "RADIUS Auth Port (UDP): \e[36m${FINAL_AUTH_PORT}\e[0m"
-echo -e "RADIUS Acct Port (UDP): \e[36m${FINAL_ACCT_PORT}\e[0m"
+echo -e "iBsng Web-Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+echo -e "RADIUS Auth Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
+echo -e "RADIUS Acct Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
 echo ""
 echo "To manage the service, navigate to '${BASE_DIR}' and use:"
 echo "  - To stop: 'docker compose down'"
