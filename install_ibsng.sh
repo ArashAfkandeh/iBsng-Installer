@@ -18,7 +18,7 @@ set -euo pipefail
 
 # Function to print step titles
 print_step() {
-  echo "\n----------------------------------------------"
+  echo -e "\n----------------------------------------------"
   echo "$1"
   echo "----------------------------------------------"
 }
@@ -128,8 +128,9 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
     echo -n "."
     sleep 1
   done
+  echo ""
   
-  echo -e "\nDatabase is ready. Proceeding with data copy."
+  echo "Database is ready. Proceeding with data copy."
   # --- END: Robust wait logic ---
 
   # Copy database contents from the container to the host
@@ -159,21 +160,26 @@ read_with_timeout() {
 
     # Show the prompt and wait for input
     echo "You have ${timeout} seconds to enter a custom port or press Enter for default (${default_value})."
-    read -t "$timeout" -r -p "${prompt}: " response || true
-
-    # Process the response
-    if [ -z "$response" ]; then
-        echo "Using default value: $default_value"
-        result="$default_value"
-    elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
-        echo "Invalid input, using default value: $default_value"
-        result="$default_value"
+    if read -t "$timeout" -r -p "${prompt}: " response 2>/dev/null; then
+        # Input was provided within timeout
+        if [ -z "$response" ]; then
+            echo "Using default value: $default_value" >&2
+            result="$default_value"
+        elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
+            echo "Invalid input, using default value: $default_value" >&2
+            result="$default_value"
+        else
+            result="$response"
+            echo "Using custom value: $result" >&2
+        fi
     else
-        result="$response"
-        echo "Using custom value: $result"
+        # Timeout occurred or read failed
+        echo "" # Add newline after interrupted prompt
+        echo "Timeout reached, using default value: $default_value" >&2
+        result="$default_value"
     fi
 
-    # Return the clean value
+    # Return only the clean value to stdout
     echo "$result"
 }
 
@@ -203,11 +209,22 @@ WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
 RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
 RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 
+# Clean any potential extra characters or whitespace
+WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
+RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
+RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
+
+# Set defaults if cleaning resulted in empty values
+WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
+RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
+RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
+
 # Export cleaned variables
 export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
 
 # Show selected ports
-echo -e "\nSelected ports:"
+echo ""
+echo "Selected ports:"
 echo "Web Panel Port: ${WEB_PORT}"
 echo "RADIUS Authentication Port: ${RADIUS_AUTH_PORT}"
 echo "RADIUS Accounting Port: ${RADIUS_ACCT_PORT}"
@@ -278,7 +295,7 @@ if ! check_port ${RADIUS_ACCT_PORT} "udp"; then
   exit 1
 fi
 
-echo "All required ports (80/tcp, 1812/udp, 1813/udp) are available."
+echo "All required ports (${WEB_PORT}/tcp, ${RADIUS_AUTH_PORT}/udp, ${RADIUS_ACCT_PORT}/udp) are available."
 # --- END: Host Network Port Validation ---
 
 # --- START: Docker Compose creation for Host Network ---
@@ -329,16 +346,22 @@ else
   echo "Proceeding with interactive setup (${TIMEOUT}s timeout per prompt)."
 
   # Prompt for the Telegram Bot Token with a timeout
-  if ! read -t ${TIMEOUT} -p "Enter Telegram Bot Token (or press Enter to skip): " TELEGRAM_BOT_TOKEN; then
-      echo -e "\nTimeout reached or input skipped."
+  if read -t ${TIMEOUT} -p "Enter Telegram Bot Token (or press Enter to skip): " TELEGRAM_BOT_TOKEN 2>/dev/null; then
+      echo "Token received."
+  else
+      echo ""
+      echo "Timeout reached or input skipped."
       # Ensure token is empty to skip the next step
       TELEGRAM_BOT_TOKEN=""
   fi
 
   # Only ask for Chat ID if a Token was provided
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    if ! read -t ${TIMEOUT} -p "Enter your Telegram Chat ID: " CHAT_ID; then
-        echo -e "\nTimeout reached or input skipped."
+    if read -t ${TIMEOUT} -p "Enter your Telegram Chat ID: " CHAT_ID 2>/dev/null; then
+        echo "Chat ID received."
+    else
+        echo ""
+        echo "Timeout reached or input skipped."
         # Ensure Chat ID is empty
         CHAT_ID=""
     fi
@@ -389,25 +412,20 @@ else
   echo "Warning: Service file ${SERVICE_SRC_FILE} not found. Skipping backup service installation."
 fi
 
-# Store cleaned port values for display
-CLEAN_WEB_PORT=$(echo "${WEB_PORT}" | tr -d '\n')
-CLEAN_AUTH_PORT=$(echo "${RADIUS_AUTH_PORT}" | tr -d '\n')
-CLEAN_ACCT_PORT=$(echo "${RADIUS_ACCT_PORT}" | tr -d '\n')
-
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
 # Print system access information
 print_step "System Access Information"
 echo "IBSng has been successfully installed on this server."
-echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${CLEAN_WEB_PORT}/IBSng/admin/\e[0m"
+echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
 echo -e "Default Username: \e[33msystem\e[0m"
 echo -e "Default Password: \e[31madmin\e[0m"
 echo ""
 echo "Your RADIUS Ports:"
-echo -e "iBsng Web-Panel Port (TCP): \e[36m${CLEAN_WEB_PORT}\e[0m"
-echo -e "RADIUS Auth Port (UDP): \e[36m${CLEAN_AUTH_PORT}\e[0m"
-echo -e "RADIUS Acct Port (UDP): \e[36m${CLEAN_ACCT_PORT}\e[0m"
+echo -e "iBsng Web-Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+echo -e "RADIUS Auth Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
+echo -e "RADIUS Acct Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
 echo ""
 echo "To manage the service, navigate to '${BASE_DIR}' and use:"
 echo "  - To stop: 'docker compose down'"
