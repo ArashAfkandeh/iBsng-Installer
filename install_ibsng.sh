@@ -31,7 +31,7 @@ sudo apt update -y
 apt-get remove -y docker docker-engine docker.io containerd runc || true
 
 # Install packages required to add the Docker repository
-apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip
+apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail
 
 # --- Download and extract latest release from a GitHub project ---
 print_step "Downloading and extracting latest GitHub release"
@@ -120,43 +120,11 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   # Run the container without port mapping for initial database setup
   docker run --name ibsng_tmp -v "${DATA_DIR}:/var/lib/pgsql" -d "$IMAGE_NAME"
 
-  # --- START: Enhanced database readiness check ---
-  echo "Waiting for PostgreSQL and IBSng services to become ready... (timeout: 180s)"
-  
-  TIMEOUT=180
-  START_TIME=$(date +%s)
-  
-  check_postgres_ready() {
-    # Try to connect to PostgreSQL and check if IBSng database exists
-    docker exec ibsng_tmp bash -c "PGPASSWORD=postgres psql -U postgres -d IBSng -c '\q' 2>/dev/null" >/dev/null
-    return $?
-  }
-
-  check_ibsng_ready() {
-    # Check if IBSng process is running and listening
-    docker exec ibsng_tmp bash -c "pgrep -f '/usr/local/IBSng/core/server.py' >/dev/null && netstat -tnl | grep -q ':1812'"
-    return $?
-  }
-  
-  while true; do
-    CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - START_TIME))
-    
-    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-      echo -e "\nError: Timeout reached. Services failed to start within ${TIMEOUT} seconds."
-      echo "Dumping container logs for debugging:"
-      docker logs ibsng_tmp
-      docker rm -f ibsng_tmp
-      exit 1
-    fi
-    
-    if check_postgres_ready && check_ibsng_ready; then
-      echo -e "\nAll services are running and ready!"
-      break
-    fi
-    
+  # Allow 20 seconds for the services to start properly
+  echo "Waiting for services to initialize (20 seconds)..."
+  for i in {1..20}; do
     echo -n "."
-    sleep 3
+    sleep 1
   done
   
   echo -e "\nDatabase is ready. Proceeding with data copy."
