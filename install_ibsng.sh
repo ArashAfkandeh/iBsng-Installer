@@ -119,27 +119,58 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
 
   # Remove any potential temporary container
   docker rm -f ibsng_tmp 2>/dev/null || true
+  
   # Run the container without port mapping for initial database setup
   docker run --name ibsng_tmp -v "${DATA_DIR}:/var/lib/pgsql" -d "$IMAGE_NAME"
 
-  # Allow 20 seconds for the services to start properly
-  echo "Waiting for services to initialize (20 seconds)..."
-  for i in {1..20}; do
-    echo -n "."
-    sleep 1
-  done
-  echo ""
-  
-  echo "Database is ready. Proceeding with data copy."
-  # --- END: Robust wait logic ---
+  # Wait for container to start
+  echo "Waiting for container to start..."
+  sleep 10
 
-  # Copy database contents from the container to the host
-  # We copy the /var/lib/pgsql folder into the /opt/ibsng directory so that
-  # the /opt/ibsng/pgsql structure is preserved
-  docker cp ibsng_tmp:/var/lib/pgsql "$BASE_DIR"
+  # Initialize PostgreSQL database inside the container
+  echo "Initializing PostgreSQL database..."
+  docker exec ibsng_tmp service postgresql initdb
+  
+  # Start PostgreSQL service
+  echo "Starting PostgreSQL service..."
+  docker exec ibsng_tmp service postgresql start
+  
+  # Wait for PostgreSQL to be ready
+  echo "Waiting for PostgreSQL to be ready..."
+  sleep 15
+  
+  # Create IBSng database and user
+  echo "Setting up IBSng database..."
+  docker exec ibsng_tmp su - postgres -c "createdb IBSng"
+  docker exec ibsng_tmp su - postgres -c "psql -c \"CREATE USER ibsng WITH PASSWORD 'ibsng';\""
+  docker exec ibsng_tmp su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE IBSng TO ibsng;\""
+  
+  # Import IBSng database schema
+  echo "Importing IBSng database schema..."
+  docker exec ibsng_tmp su - postgres -c "psql IBSng < /usr/local/IBSng/core/db/schema.sql" || true
+  
+  # Wait a bit more to ensure everything is properly saved
+  echo "Finalizing database setup..."
+  sleep 10
+  
+  # Stop PostgreSQL to ensure clean shutdown
+  docker exec ibsng_tmp service postgresql stop
+  sleep 5
+  
+  # Copy the initialized database to host
+  echo "Copying initialized database to host..."
+  docker cp ibsng_tmp:/var/lib/pgsql/. "$DATA_DIR/"
+  
+  # Set proper permissions again after copy
+  chown -R 26:26 "$DATA_DIR"
+  chmod 700 "$DATA_DIR"
   
   # Remove the temporary container
   docker rm -f ibsng_tmp
+  
+  echo "Database initialization completed successfully."
+else
+  echo "Database directory already exists, skipping initialization."
 fi
 
 # --- START: Host Network Port Validation ---
@@ -311,6 +342,19 @@ echo "docker-compose.yml with network_mode:host created successfully."
 print_step "Running the IBSng service with Docker Compose"
 docker compose -f "${COMPOSE_FILE}" down
 docker compose -f "${COMPOSE_FILE}" up -d
+
+# Wait for the service to fully start and then restart once to ensure proper initialization
+echo "Waiting for service to start..."
+sleep 15
+
+echo "Restarting service to ensure proper database connection..."
+docker compose -f "${COMPOSE_FILE}" restart
+
+# Wait for the restart to complete
+echo "Waiting for service restart to complete..."
+sleep 10
+
+echo "IBSng service is now running and ready."
 # --- END: Docker Compose creation for Host Network ---
 
 # Set the timezone to Asia/Tehran
