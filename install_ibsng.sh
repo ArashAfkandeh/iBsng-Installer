@@ -114,35 +114,12 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   docker rm -f ibsng_tmp 2>/dev/null || true
   # Run the container without port mapping for initial database setup
   docker run --name ibsng_tmp -d "$IMAGE_NAME"
-
-  # --- START: Robust wait logic for database readiness ---
-  echo "Waiting for the database to become ready... (timeout: 60s)"
-  
-  TIMEOUT=60
-  START_TIME=$(date +%s)
-  
-  # The 'until' loop continues until the grep command succeeds (exit code 0)
-	until docker logs ibsng_tmp 2>&1 | grep -q -E "(database system is ready to accept connections|postmaster started|LOG:  database system is ready|ready for connections)"; do
-		CURRENT_TIME=$(date +%s)
-		ELAPSED=$((CURRENT_TIME - START_TIME))
-		if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-			echo -e "\nError: Timeout reached. The database failed to start within ${TIMEOUT} seconds."
-			echo "Dumping last logs for debugging:"
-			docker logs ibsng_tmp
-			docker rm -f ibsng_tmp
-			exit 1
-		fi
-		sleep 2
-	done
-
-  echo -e "\nDatabase is ready. Proceeding with data copy."
-  # --- END: Robust wait logic ---
-
+  # Wait for the database service to come up
+  sleep 20
   # Copy database contents from the container to the host
   # We copy the /var/lib/pgsql folder into the /opt/ibsng directory so that
   # the /opt/ibsng/pgsql structure is preserved
   docker cp ibsng_tmp:/var/lib/pgsql "$BASE_DIR"
-  
   # Remove the temporary container
   docker rm -f ibsng_tmp
 fi
