@@ -464,21 +464,21 @@ if [ -f "$SERVICE_SRC_FILE" ]; then
 
   echo "Backup service has been successfully installed and started."
 else
-	sudo tee /etc/systemd/system/backup-ibsng.service > /dev/null << 'EOL'
-	[Unit]
-	Description=IBSng Backup Service with Telegram Integration After=network-online.target Wants=network-online.target
-	After=network.target
-	
-	[Service]
-	Type=simple
-	ExecStart=/usr/bin/ python3 /root/ibsng_backup/main.py
-	Restart=always
-	RestartSec=3
-	LimitNOFILE=1048576
-	
-	[Install]
-	WantedBy=multi-user.target
-	EOL
+  sudo tee /etc/systemd/system/backup-ibsng.service > /dev/null << 'EOL'
+  [Unit]
+  Description=IBSng Backup Service with Telegram Integration After=network-online.target Wants=network-online.target
+  After=network.target
+
+  [Service]
+  Type=simple
+  ExecStart=/usr/bin/ python3 /root/ibsng_backup/main.py
+  Restart=always
+  RestartSec=3
+  LimitNOFILE=1048576
+
+  [Install]
+  WantedBy=multi-user.target
+  EOL
 
   sudo systemctl daemon-reload && sudo systemctl enable backup-ibsng.service && sudo systemctl start backup-ibsng.service
 
