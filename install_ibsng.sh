@@ -124,38 +124,11 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   docker rm -f ibsng_tmp
 fi
 
-# --- START: Host Network Port Validation ---
-print_step "Validating Required Ports for Host Network Mode"
-echo "INFO: Using 'network_mode: host'. You can customize ports or use defaults."
-echo "You have 60 seconds to enter custom ports or defaults will be used."
-
-# Define default ports
-DEFAULT_WEB_PORT=80
-DEFAULT_RADIUS_AUTH_PORT=1812
-DEFAULT_RADIUS_ACCT_PORT=1813
-
-# Function to read input with timeout
-read_with_timeout() {
-  local prompt="$1"
-  local default_value="$2"
-  local timeout=60
-  local response=""
-
-  # Display prompt with default value
-  read -t $timeout -p "$prompt (default: $default_value, timeout in ${timeout}s): " response || true
-  
-  # Use default if no response or empty
-  if [ -z "$response" ]; then
-    echo "$default_value"
-  else
-    echo "$response"
-  fi
-}
-
-# Get ports from user with timeout
-WEB_PORT=$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")
-RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")
-RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")
+# Set default port values
+print_step "Setting default service ports"
+WEB_PORT=80
+RADIUS_AUTH_PORT=1812
+RADIUS_ACCT_PORT=1813
 
 # Function to check if a port is in use
 check_port() {
