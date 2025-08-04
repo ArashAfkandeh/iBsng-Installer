@@ -149,31 +149,35 @@ DEFAULT_WEB_PORT=80
 DEFAULT_RADIUS_AUTH_PORT=1812
 DEFAULT_RADIUS_ACCT_PORT=1813
 
-# Function to read input with timeout
+# Function to read input with timeout and return clean value
 read_with_timeout() {
   local prompt="$1"
   local default_value="$2"
   local timeout=60
   local response=""
+  local result=""
 
+  # Show prompt for user input
   echo "You have ${timeout} seconds to enter a custom port or press Enter for default."
   if ! read -t $timeout -p "$prompt (default: $default_value): " response; then
     echo -e "\nTimeout reached, using default value: $default_value"
-    echo "$default_value"
-    return
-  fi
-  
-  # Use default if response is empty (user pressed Enter) or invalid
-  if [ -z "$response" ] || ! [[ "$response" =~ ^[0-9]+$ ]]; then
-    if [ -z "$response" ]; then
-      echo "Using default value: $default_value"
-    else
-      echo "Invalid input, using default value: $default_value"
-    fi
-    echo "$default_value"
+    result="$default_value"
   else
-    echo "$response"
+    # Use default if response is empty (user pressed Enter) or invalid
+    if [ -z "$response" ] || ! [[ "$response" =~ ^[0-9]+$ ]]; then
+      if [ -z "$response" ]; then
+        echo "Using default value: $default_value"
+      else
+        echo "Invalid input, using default value: $default_value"
+      fi
+      result="$default_value"
+    else
+      result="$response"
+    fi
   fi
+
+  # Return clean value
+  printf '%s' "$result"
 }
 
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
@@ -202,13 +206,8 @@ WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
 RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
 RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 
-# Export variables to make them available in subshells
+# Export cleaned variables
 export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
-
-# Clean and store port values
-WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n' | tr -d ' ')
-RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n' | tr -d ' ')
-RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n' | tr -d ' ')
 
 # Show selected ports
 echo -e "\nSelected ports:"
