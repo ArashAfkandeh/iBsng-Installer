@@ -74,7 +74,7 @@ rm "$TEMP_ARCHIVE"
 echo "Successfully extracted project to ${EXTRACT_DIR}"
 # --- End of GitHub download section ---
 
-sudo pip3 install pyTelegramBotAPI jdatetime
+sudo pip3 install -y pyTelegramBotAPI jdatetime
 
 # Add Docker's official GPG key and register the stable repository
 print_step "Adding the official Docker repository"
@@ -114,21 +114,74 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   docker rm -f ibsng_tmp 2>/dev/null || true
   # Run the container without port mapping for initial database setup
   docker run --name ibsng_tmp -d "$IMAGE_NAME"
-  # Wait for the database service to come up
-  sleep 20
+
+  # --- START: Robust wait logic for database readiness ---
+  echo "Waiting for the database to become ready... (timeout: 60s)"
+  
+  TIMEOUT=60
+  START_TIME=$(date +%s)
+  
+  # The 'until' loop continues until the grep command succeeds (exit code 0)
+  until docker logs ibsng_tmp 2>&1 | grep -q "database system is ready to accept connections"; do
+      CURRENT_TIME=$(date +%s)
+      ELAPSED=$((CURRENT_TIME - START_TIME))
+  
+      if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+          echo -e "\nError: Timeout reached. The database failed to start within ${TIMEOUT} seconds."
+          echo "Dumping last logs for debugging:"
+          docker logs ibsng_tmp
+          docker rm -f ibsng_tmp # Clean up the failed container
+          exit 1
+      fi
+  
+      echo -n "." # Show progress to the user
+      sleep 2
+  done
+  
+  echo -e "\nDatabase is ready. Proceeding with data copy."
+  # --- END: Robust wait logic ---
+
   # Copy database contents from the container to the host
   # We copy the /var/lib/pgsql folder into the /opt/ibsng directory so that
   # the /opt/ibsng/pgsql structure is preserved
   docker cp ibsng_tmp:/var/lib/pgsql "$BASE_DIR"
+  
   # Remove the temporary container
   docker rm -f ibsng_tmp
 fi
 
-# Set default port values
-print_step "Setting default service ports"
-WEB_PORT=80
-RADIUS_AUTH_PORT=1812
-RADIUS_ACCT_PORT=1813
+# --- START: Host Network Port Validation ---
+print_step "Validating Required Ports for Host Network Mode"
+echo "INFO: Using 'network_mode: host'. You can customize ports or use defaults."
+echo "You have 60 seconds to enter custom ports or defaults will be used."
+
+# Define default ports
+DEFAULT_WEB_PORT=80
+DEFAULT_RADIUS_AUTH_PORT=1812
+DEFAULT_RADIUS_ACCT_PORT=1813
+
+# Function to read input with timeout
+read_with_timeout() {
+  local prompt="$1"
+  local default_value="$2"
+  local timeout=60
+  local response=""
+
+  # Display prompt with default value
+  read -t $timeout -p "$prompt (default: $default_value, timeout in ${timeout}s): " response || true
+  
+  # Use default if no response or empty
+  if [ -z "$response" ]; then
+    echo "$default_value"
+  else
+    echo "$response"
+  fi
+}
+
+# Get ports from user with timeout
+WEB_PORT=$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")
+RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")
+RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")
 
 # Function to check if a port is in use
 check_port() {
