@@ -109,180 +109,59 @@ BASE_DIR="/opt/ibsng"
 DATA_DIR="${BASE_DIR}/pgsql"
 mkdir -p "$BASE_DIR"
 
-# Function to wait for PostgreSQL to be ready
-wait_for_postgres() {
-    local container_name="$1"
-    local max_attempts=30
-    local attempt=1
-
-    echo "Waiting for PostgreSQL to be ready..."
-    while [ $attempt -le $max_attempts ]; do
-        if docker exec "$container_name" su - postgres -c "psql -c 'SELECT version();'" &>/dev/null; then
-            echo "PostgreSQL is ready after $attempt attempts."
-            return 0
-        fi
-        echo "Attempt $attempt/$max_attempts: PostgreSQL not ready yet, waiting..."
-        sleep 2
-        ((attempt++))
-    done
-    
-    echo "ERROR: PostgreSQL failed to start after $max_attempts attempts."
-    return 1
-}
-
-# Function to execute PostgreSQL command with retry
-exec_postgres_command() {
-    local container_name="$1"
-    local command="$2"
-    local description="$3"
-    local max_attempts=3
-    local attempt=1
-
-    while [ $attempt -le $max_attempts ]; do
-        echo "Attempt $attempt/$max_attempts: $description"
-        if docker exec "$container_name" su - postgres -c "$command"; then
-            echo "SUCCESS: $description completed."
-            return 0
-        else
-            echo "FAILED: $description failed on attempt $attempt."
-            if [ $attempt -lt $max_attempts ]; then
-                echo "Retrying in 3 seconds..."
-                sleep 3
-            fi
-        fi
-        ((attempt++))
-    done
-    
-    echo "ERROR: $description failed after $max_attempts attempts."
-    return 1
-}
-
-# Run a temporary container to copy the initial database (only if data doesn't exist)
+# ----------------------------------------------------------------------------
+# Initialize persistent PostgreSQL data if it doesn't already exist
+#
+# The IBSng Docker image already contains a pre-initialized PostgreSQL cluster
+# populated with the IBSng schema and the default "ibs" user.  Attempting to
+# re-run `initdb` or manually create the database inside the container can
+# result in permission errors and "database does not exist" messages during
+# installation.  To ensure the host has a copy of this pre-built data for
+# persistence, we spin up a temporary container, allow it to initialise the
+# database using its own entrypoint (run.sh), then copy the resulting
+# `/var/lib/pgsql` directory out to the host.  On subsequent runs we simply
+# re-use the existing host data.
 if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
-  print_step "Running a temporary container to extract initial data"
-  # Set proper permissions for PostgreSQL data directory
+  print_step "Initializing PostgreSQL data directory from the IBSng image"
+
+  # Ensure target directory exists
   mkdir -p "$DATA_DIR"
-  chown -R 26:26 "$DATA_DIR"
-  chmod 700 "$DATA_DIR"
 
-  # Remove any potential temporary container
+  # Remove any previous temporary container
   docker rm -f ibsng_tmp 2>/dev/null || true
-  
-  # Run the container without port mapping for initial database setup
-  echo "Starting temporary container for database initialization..."
-  docker run --name ibsng_tmp -v "${DATA_DIR}:/var/lib/pgsql" -d "$IMAGE_NAME"
 
-  # Wait for container to start
-  echo "Waiting for container to start..."
-  sleep 15
+  # Start a throwaway container in the background.  Do not mount the host
+  # directory yet; we want the container to start with its internal data so
+  # that the entrypoint script can perform its own initialization.
+  docker run --name ibsng_tmp -d "$IMAGE_NAME"
 
-  # Initialize PostgreSQL database inside the container
-  echo "Initializing PostgreSQL database..."
-  if ! docker exec ibsng_tmp service postgresql initdb; then
-    echo "ERROR: Failed to initialize PostgreSQL database."
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Start PostgreSQL service
-  echo "Starting PostgreSQL service..."
-  if ! docker exec ibsng_tmp service postgresql start; then
-    echo "ERROR: Failed to start PostgreSQL service."
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Wait for PostgreSQL to be ready with proper checking
-  if ! wait_for_postgres "ibsng_tmp"; then
-    echo "ERROR: PostgreSQL failed to start properly."
-    docker logs ibsng_tmp
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Create IBSng database with retry logic
-  echo "Setting up IBSng database..."
-  
-  # Create database
-  if ! exec_postgres_command "ibsng_tmp" "createdb IBSng" "Creating IBSng database"; then
-    echo "ERROR: Failed to create IBSng database."
-    docker logs ibsng_tmp
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Verify database was created
-  echo "Verifying database creation..."
-  if ! docker exec ibsng_tmp su - postgres -c "psql -lqt | cut -d \| -f 1 | grep -qw IBSng"; then
-    echo "ERROR: IBSng database was not created successfully."
-    docker exec ibsng_tmp su - postgres -c "psql -l"
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  echo "IBSng database verified successfully."
-  
-  # Create user
-  if ! exec_postgres_command "ibsng_tmp" "psql -c \"CREATE USER ibsng WITH PASSWORD 'ibsng';\"" "Creating ibsng user"; then
-    echo "ERROR: Failed to create ibsng user."
-    docker logs ibsng_tmp
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Grant privileges - using the correct database name
-  if ! exec_postgres_command "ibsng_tmp" "psql -c \"GRANT ALL PRIVILEGES ON DATABASE \\\"IBSng\\\" TO ibsng;\"" "Granting privileges to ibsng user"; then
-    echo "ERROR: Failed to grant privileges to ibsng user."
-    docker logs ibsng_tmp
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Import IBSng database schema
-  echo "Importing IBSng database schema..."
-  if docker exec ibsng_tmp test -f "/usr/local/IBSng/core/db/schema.sql"; then
-    if ! docker exec ibsng_tmp su - postgres -c "psql IBSng < /usr/local/IBSng/core/db/schema.sql"; then
-      echo "WARNING: Failed to import database schema. This might be expected if schema doesn't exist."
-    else
-      echo "Database schema imported successfully."
+  echo "Waiting for the temporary container to complete initial database setup..."
+  # Poll for the presence of a running postgres process.  Once the process
+  # exists, we assume the initialisation phase has finished.
+  for i in {1..30}; do
+    if docker exec ibsng_tmp pgrep -x postgres > /dev/null 2>&1; then
+      # Give the service a little extra time to finish writing files
+      sleep 5
+      break
     fi
-  else
-    echo "WARNING: Schema file not found at /usr/local/IBSng/core/db/schema.sql"
-  fi
-  
-  # Final verification
-  echo "Performing final database verification..."
-  if ! docker exec ibsng_tmp su - postgres -c "psql IBSng -c 'SELECT current_database();'"; then
-    echo "ERROR: Final database verification failed."
-    docker logs ibsng_tmp
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Wait a bit more to ensure everything is properly saved
-  echo "Finalizing database setup..."
-  sleep 10
-  
-  # Stop PostgreSQL to ensure clean shutdown
-  echo "Stopping PostgreSQL service..."
-  docker exec ibsng_tmp service postgresql stop
-  sleep 5
-  
-  # Copy the initialized database to host
-  echo "Copying initialized database to host..."
-  if ! docker cp ibsng_tmp:/var/lib/pgsql/. "$DATA_DIR/"; then
-    echo "ERROR: Failed to copy database files to host."
-    docker rm -f ibsng_tmp
-    exit 1
-  fi
-  
-  # Set proper permissions again after copy
+    sleep 2
+  done
+
+  # Copy the fully initialized database directory to the host.  We use the
+  # trailing `.` to copy the contents rather than the parent folder itself.
+  echo "Copying database files from container to host at $DATA_DIR..."
+  docker cp ibsng_tmp:/var/lib/pgsql/. "$DATA_DIR/"
+
+  # Set ownership and permissions so the PostgreSQL user inside the container
+  # (UID 26) can read/write the data.  We deliberately avoid chmod 777; the
+  # service requires 700 on the data directory for security.
   chown -R 26:26 "$DATA_DIR"
   chmod 700 "$DATA_DIR"
-  
-  # Remove the temporary container
+
+  # Remove the temporary container now that the data has been extracted
   docker rm -f ibsng_tmp
-  
-  echo "Database initialization completed successfully."
+
+  echo "Initial database extracted successfully.  Persistent data directory prepared."
 else
   echo "Database directory already exists, skipping initialization."
 fi
@@ -384,7 +263,14 @@ check_port() {
       fi
     fi
   elif command -v netstat &> /dev/null; then
-    # Fallback to netstat if ss is not available
+    # Fallback to netstat if ss is not available.  Determine the appropriate
+    # protocol flag (-t for TCP, -u for UDP) based on the requested protocol.
+    local proto_flag=""
+    if [ "$proto" = "udp" ]; then
+      proto_flag="u"
+    else
+      proto_flag="t"
+    fi
     if netstat -ln${proto_flag} | grep -q ":${port} "; then
       return 1 # Port is in use
     fi
