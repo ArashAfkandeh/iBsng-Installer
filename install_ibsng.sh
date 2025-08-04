@@ -37,8 +37,8 @@ apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip
 print_step "Downloading and extracting latest GitHub release"
 
 # !!! IMPORTANT: Replace with your target repository's owner and name !!!
-GITHUB_OWNER="trimstray"
-GITHUB_REPO="the-book-of-secret-knowledge"
+GITHUB_OWNER="ArashAfkandeh"
+GITHUB_REPO="iBsng-Installer"
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 # Define where to extract the files
