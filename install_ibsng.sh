@@ -156,31 +156,27 @@ read_with_timeout() {
     local default_value="$2"
     local timeout=60
     local response
-    local result
 
     # Show the prompt and wait for input
-    echo "You have ${timeout} seconds to enter a custom port or press Enter for default (${default_value})."
+    echo "You have ${timeout} seconds to enter a custom port or press Enter for default (${default_value})." >&2
     if read -t "$timeout" -r -p "${prompt}: " response 2>/dev/null; then
         # Input was provided within timeout
         if [ -z "$response" ]; then
             echo "Using default value: $default_value" >&2
-            result="$default_value"
+            echo "$default_value"
         elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
             echo "Invalid input, using default value: $default_value" >&2
-            result="$default_value"
+            echo "$default_value"
         else
-            result="$response"
-            echo "Using custom value: $result" >&2
+            echo "Using custom value: $response" >&2
+            echo "$response"
         fi
     else
         # Timeout occurred or read failed
-        echo "" # Add newline after interrupted prompt
+        echo "" >&2 # Add newline after interrupted prompt
         echo "Timeout reached, using default value: $default_value" >&2
-        result="$default_value"
+        echo "$default_value"
     fi
-
-    # Return only the clean value to stdout
-    echo "$result"
 }
 
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
@@ -192,32 +188,26 @@ RADIUS_ACCT_PORT=${3:-""}
 if [ -z "$WEB_PORT" ]; then
   echo "Web port not provided in arguments."
   WEB_PORT=$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")
+  # Clean the result immediately
+  WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
 fi
 
 if [ -z "$RADIUS_AUTH_PORT" ]; then
   echo "RADIUS Authentication port not provided in arguments."
   RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")
+  # Clean the result immediately
+  RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
 fi
 
 if [ -z "$RADIUS_ACCT_PORT" ]; then
   echo "RADIUS Accounting port not provided in arguments."
   RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")
+  # Clean the result immediately
+  RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 fi
-
-# Set defaults if still empty (timeout occurred)
-WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
-RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
-RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
-
-# Clean any potential extra characters or whitespace
-WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
-RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
-RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r' | sed 's/[^0-9]//g')
-
-# Set defaults if cleaning resulted in empty values
-WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
-RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
-RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 
 # Export cleaned variables
 export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
