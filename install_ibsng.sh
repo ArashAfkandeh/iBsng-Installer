@@ -143,8 +143,6 @@ fi
 
 # --- START: Host Network Port Validation ---
 print_step "Validating Required Ports for Host Network Mode"
-echo "INFO: Using 'network_mode: host'. You can customize ports or use defaults."
-echo "You have 60 seconds to enter custom ports or defaults will be used."
 
 # Define default ports
 DEFAULT_WEB_PORT=80
@@ -158,21 +156,60 @@ read_with_timeout() {
   local timeout=60
   local response=""
 
-  # Display prompt with default value
-  read -t $timeout -p "$prompt (default: $default_value, timeout in ${timeout}s): " response || true
+  echo "You have ${timeout} seconds to enter a custom port or press Enter for default."
+  if ! read -t $timeout -p "$prompt (default: $default_value): " response; then
+    echo -e "\nTimeout reached, using default value: $default_value"
+    echo "$default_value"
+    return
+  fi
   
-  # Use default if no response or empty
-  if [ -z "$response" ]; then
+  # Use default if response is empty (user pressed Enter) or invalid
+  if [ -z "$response" ] || ! [[ "$response" =~ ^[0-9]+$ ]]; then
+    if [ -z "$response" ]; then
+      echo "Using default value: $default_value"
+    else
+      echo "Invalid input, using default value: $default_value"
+    fi
     echo "$default_value"
   else
     echo "$response"
   fi
 }
 
-# Get ports from user with timeout and set default values if empty
-WEB_PORT=${WEB_PORT:-$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")}
-RADIUS_AUTH_PORT=${RADIUS_AUTH_PORT:-$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")}
-RADIUS_ACCT_PORT=${RADIUS_ACCT_PORT:-$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")}
+# Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
+WEB_PORT=${1:-""}
+RADIUS_AUTH_PORT=${2:-""}
+RADIUS_ACCT_PORT=${3:-""}
+
+# If any port is not provided in arguments, ask interactively
+if [ -z "$WEB_PORT" ]; then
+  echo "Web port not provided in arguments."
+  WEB_PORT=$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")
+fi
+
+if [ -z "$RADIUS_AUTH_PORT" ]; then
+  echo "RADIUS Authentication port not provided in arguments."
+  RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")
+fi
+
+if [ -z "$RADIUS_ACCT_PORT" ]; then
+  echo "RADIUS Accounting port not provided in arguments."
+  RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")
+fi
+
+# Set defaults if still empty (timeout occurred)
+WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
+RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
+RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
+
+# Export variables to make them available in subshells
+export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
+
+# Show selected ports
+echo -e "\nSelected ports:"
+echo "Web Panel Port: ${WEB_PORT}"
+echo "RADIUS Authentication Port: ${RADIUS_AUTH_PORT}"
+echo "RADIUS Accounting Port: ${RADIUS_ACCT_PORT}"
 
 # Function to check if a port is in use
 check_port() {
