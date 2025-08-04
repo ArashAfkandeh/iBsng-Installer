@@ -388,9 +388,11 @@ fi
 
 # Final check: Create the config file only if BOTH variables have a value
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-  BACKUP_DIR="/root/backup_ibsng"
+  BACKUP_DIR="${BASE_DIR}/backup_ibsng"
   CONFIG_FILE="${BACKUP_DIR}/config.json"
-  mkdir -p "$BACKUP_DIR"
+  mkdir -p "$BACKUP_DIR" || {
+    echo "Error: Failed to create backup directory" >&2
+  }
 
   # Create the config.json file
   cat <<EOF > "$CONFIG_FILE"
