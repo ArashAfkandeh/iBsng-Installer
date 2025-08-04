@@ -151,33 +151,30 @@ DEFAULT_RADIUS_ACCT_PORT=1813
 
 # Function to read input with timeout and return clean value
 read_with_timeout() {
-  local prompt="$1"
-  local default_value="$2"
-  local timeout=60
-  local response=""
-  local result=""
+    local prompt="$1"
+    local default_value="$2"
+    local timeout=60
+    local response
+    local result
 
-  # Show prompt for user input
-  echo "You have ${timeout} seconds to enter a custom port or press Enter for default."
-  if ! read -t $timeout -p "$prompt (default: $default_value): " response; then
-    echo -e "\nTimeout reached, using default value: $default_value"
-    result="$default_value"
-  else
-    # Use default if response is empty (user pressed Enter) or invalid
-    if [ -z "$response" ] || ! [[ "$response" =~ ^[0-9]+$ ]]; then
-      if [ -z "$response" ]; then
+    # Show the prompt and wait for input
+    echo "You have ${timeout} seconds to enter a custom port or press Enter for default (${default_value})."
+    read -t "$timeout" -r -p "${prompt}: " response || true
+
+    # Process the response
+    if [ -z "$response" ]; then
         echo "Using default value: $default_value"
-      else
+        result="$default_value"
+    elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
         echo "Invalid input, using default value: $default_value"
-      fi
-      result="$default_value"
+        result="$default_value"
     else
-      result="$response"
+        result="$response"
+        echo "Using custom value: $result"
     fi
-  fi
 
-  # Return clean value
-  printf '%s' "$result"
+    # Return the clean value
+    echo "$result"
 }
 
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
@@ -392,20 +389,25 @@ else
   echo "Warning: Service file ${SERVICE_SRC_FILE} not found. Skipping backup service installation."
 fi
 
+# Store cleaned port values for display
+CLEAN_WEB_PORT=$(echo "${WEB_PORT}" | tr -d '\n')
+CLEAN_AUTH_PORT=$(echo "${RADIUS_AUTH_PORT}" | tr -d '\n')
+CLEAN_ACCT_PORT=$(echo "${RADIUS_ACCT_PORT}" | tr -d '\n')
+
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
 # Print system access information
 print_step "System Access Information"
 echo "IBSng has been successfully installed on this server."
-echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${CLEAN_WEB_PORT}/IBSng/admin/\e[0m"
 echo -e "Default Username: \e[33msystem\e[0m"
 echo -e "Default Password: \e[31madmin\e[0m"
 echo ""
 echo "Your RADIUS Ports:"
-echo -e "iBsng Web-Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
-echo -e "RADIUS Auth Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
-echo -e "RADIUS Acct Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
+echo -e "iBsng Web-Panel Port (TCP): \e[36m${CLEAN_WEB_PORT}\e[0m"
+echo -e "RADIUS Auth Port (UDP): \e[36m${CLEAN_AUTH_PORT}\e[0m"
+echo -e "RADIUS Acct Port (UDP): \e[36m${CLEAN_ACCT_PORT}\e[0m"
 echo ""
 echo "To manage the service, navigate to '${BASE_DIR}' and use:"
 echo "  - To stop: 'docker compose down'"
