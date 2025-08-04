@@ -110,32 +110,53 @@ mkdir -p "$BASE_DIR"
 # Run a temporary container to copy the initial database (only if data doesn't exist)
 if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   print_step "Running a temporary container to extract initial data"
+  # Set proper permissions for PostgreSQL data directory
+  mkdir -p "$DATA_DIR"
+  chown -R 26:26 "$DATA_DIR"
+  chmod 700 "$DATA_DIR"
+
   # Remove any potential temporary container
   docker rm -f ibsng_tmp 2>/dev/null || true
   # Run the container without port mapping for initial database setup
-  docker run --name ibsng_tmp -d "$IMAGE_NAME"
+  docker run --name ibsng_tmp -v "${DATA_DIR}:/var/lib/pgsql" -d "$IMAGE_NAME"
 
-  # --- START: Robust wait logic for database readiness ---
-  echo "Waiting for the database to become ready... (timeout: 60s)"
+  # --- START: Enhanced database readiness check ---
+  echo "Waiting for PostgreSQL and IBSng services to become ready... (timeout: 180s)"
   
-  TIMEOUT=60
+  TIMEOUT=180
   START_TIME=$(date +%s)
   
-  # The 'until' loop continues until the grep command succeeds (exit code 0)
-  until docker logs ibsng_tmp 2>&1 | grep -q "database system is ready to accept connections"; do
-      CURRENT_TIME=$(date +%s)
-      ELAPSED=$((CURRENT_TIME - START_TIME))
+  check_postgres_ready() {
+    # Try to connect to PostgreSQL and check if IBSng database exists
+    docker exec ibsng_tmp bash -c "PGPASSWORD=postgres psql -U postgres -d IBSng -c '\q' 2>/dev/null" >/dev/null
+    return $?
+  }
+
+  check_ibsng_ready() {
+    # Check if IBSng process is running and listening
+    docker exec ibsng_tmp bash -c "pgrep -f '/usr/local/IBSng/core/server.py' >/dev/null && netstat -tnl | grep -q ':1812'"
+    return $?
+  }
   
-      if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-          echo -e "\nError: Timeout reached. The database failed to start within ${TIMEOUT} seconds."
-          echo "Dumping last logs for debugging:"
-          docker logs ibsng_tmp
-          docker rm -f ibsng_tmp # Clean up the failed container
-          exit 1
-      fi
-  
-      echo -n "." # Show progress to the user
-      sleep 2
+  while true; do
+    CURRENT_TIME=$(date +%s)
+    ELAPSED=$((CURRENT_TIME - START_TIME))
+    
+    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+      echo -e "\nError: Timeout reached. Services failed to start within ${TIMEOUT} seconds."
+      echo "Dumping container logs for debugging:"
+      docker logs ibsng_tmp
+      docker rm -f ibsng_tmp
+      exit 1
+    fi
+    
+    if check_postgres_ready && check_ibsng_ready; then
+      echo -e "\nAll services are running and ready!"
+      break
+    fi
+    
+    echo -n "."
+    sleep 3
   done
   
   echo -e "\nDatabase is ready. Proceeding with data copy."
@@ -317,7 +338,7 @@ fi
 
 # Final check: Create the config file only if BOTH variables have a value
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-  CONFIG_DIR="/root/ibsng_backup"
+  CONFIG_DIR="/root/iBsng-Installer"
   CONFIG_FILE="${CONFIG_DIR}/config.json"
   mkdir -p "$CONFIG_DIR"
 
@@ -342,7 +363,7 @@ fi
 print_step "Installing and Enabling Backup Service"
 
 # Define the source and destination for the service file
-SERVICE_SRC_FILE="/root/ibsng_backup/ibsng-backup.service"
+SERVICE_SRC_FILE="/root/iBsng-Installer/backup-ibsng.service"
 SERVICE_DEST_DIR="/etc/systemd/system/"
 
 # Check if the source service file exists
@@ -352,7 +373,7 @@ if [ -f "$SERVICE_SRC_FILE" ]; then
 
   echo "Reloading, enabling, and starting the backup service..."
   
-  sudo systemctl daemon-reload && sudo systemctl enable ibsng-backup.service && sudo systemctl start ibsng-backup.service
+  sudo systemctl daemon-reload && sudo systemctl enable backup-ibsng.service && sudo systemctl start backup-ibsng.service
 
   echo "Backup service has been successfully installed and started."
 else
