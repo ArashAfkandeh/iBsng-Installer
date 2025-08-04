@@ -157,49 +157,27 @@ read_with_timeout() {
     local timeout=60
     local response
 
-    # Make sure we're reading from the correct terminal
-    exec < /dev/tty
-    
     # Show the prompt and wait for input
     echo "You have ${timeout} seconds to enter a custom port or press Enter for default (${default_value})." >&2
     
-    # Use timeout command if available, otherwise use read with timeout
-    if command -v timeout &> /dev/null; then
-        echo -n "${prompt}: " >&2
-        if response=$(timeout ${timeout} bash -c 'read -r input; echo "$input"' 2>/dev/null); then
-            if [ -z "$response" ]; then
-                echo "Using default value: $default_value" >&2
-                echo "$default_value"
-            elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
-                echo "Invalid input, using default value: $default_value" >&2
-                echo "$default_value"
-            else
-                echo "Using custom value: $response" >&2
-                echo "$response"
-            fi
-        else
-            echo "" >&2
-            echo "Timeout reached, using default value: $default_value" >&2
+    # Use read with timeout, reading directly from terminal
+    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Input was provided within timeout (including empty input)
+        if [ -z "$response" ]; then
+            echo "Using default value: $default_value" >&2
             echo "$default_value"
+        elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
+            echo "Invalid input, using default value: $default_value" >&2
+            echo "$default_value"
+        else
+            echo "Using custom value: $response" >&2
+            echo "$response"
         fi
     else
-        # Fallback to read with -t option
-        if read -t "$timeout" -r -p "${prompt}: " response </dev/tty; then
-            if [ -z "$response" ]; then
-                echo "Using default value: $default_value" >&2
-                echo "$default_value"
-            elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
-                echo "Invalid input, using default value: $default_value" >&2
-                echo "$default_value"
-            else
-                echo "Using custom value: $response" >&2
-                echo "$response"
-            fi
-        else
-            echo "" >&2
-            echo "Timeout reached, using default value: $default_value" >&2
-            echo "$default_value"
-        fi
+        # Only timeout occurred (not user pressing Enter)
+        echo "" >&2
+        echo "Timeout reached, using default value: $default_value" >&2
+        echo "$default_value"
     fi
 }
 
@@ -359,72 +337,35 @@ else
   # If arguments are not provided, switch to interactive mode
   echo "Proceeding with interactive setup (${TIMEOUT}s timeout per prompt)."
 
-  # Make sure we're reading from the correct terminal
-  exec < /dev/tty
-
   # Prompt for the Telegram Bot Token with a timeout
-  echo -n "Enter Telegram Bot Token (or press Enter to skip): "
-  if command -v timeout &> /dev/null; then
-      if TELEGRAM_BOT_TOKEN=$(timeout ${TIMEOUT} bash -c 'read -r input; echo "$input"' 2>/dev/null); then
-          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-              echo "Token received."
-          else
-              echo "Skipping Telegram configuration."
-              TELEGRAM_BOT_TOKEN=""
-          fi
+  if read -t ${TIMEOUT} -r -p "Enter Telegram Bot Token (or press Enter to skip): " TELEGRAM_BOT_TOKEN </dev/tty 2>/dev/null; then
+      if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+          echo "Token received."
       else
-          echo ""
-          echo "Timeout reached, skipping Telegram configuration."
+          echo "Skipping Telegram configuration."
           TELEGRAM_BOT_TOKEN=""
       fi
   else
-      if read -t ${TIMEOUT} -r TELEGRAM_BOT_TOKEN </dev/tty; then
-          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-              echo "Token received."
-          else
-              echo "Skipping Telegram configuration."
-              TELEGRAM_BOT_TOKEN=""
-          fi
-      else
-          echo ""
-          echo "Timeout reached, skipping Telegram configuration."
-          TELEGRAM_BOT_TOKEN=""
-      fi
+      echo ""
+      echo "Timeout reached, skipping Telegram configuration."
+      TELEGRAM_BOT_TOKEN=""
   fi
 
   # Only ask for Chat ID if a Token was provided
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    echo -n "Enter your Telegram Chat ID: "
-    if command -v timeout &> /dev/null; then
-        if CHAT_ID=$(timeout ${TIMEOUT} bash -c 'read -r input; echo "$input"' 2>/dev/null); then
-            if [ -n "$CHAT_ID" ]; then
-                echo "Chat ID received."
-            else
-                echo "Chat ID not provided, skipping Telegram configuration."
-                TELEGRAM_BOT_TOKEN=""
-                CHAT_ID=""
-            fi
+    if read -t ${TIMEOUT} -r -p "Enter your Telegram Chat ID: " CHAT_ID </dev/tty 2>/dev/null; then
+        if [ -n "$CHAT_ID" ]; then
+            echo "Chat ID received."
         else
-            echo ""
-            echo "Timeout reached, skipping Telegram configuration."
+            echo "Chat ID not provided, skipping Telegram configuration."
             TELEGRAM_BOT_TOKEN=""
             CHAT_ID=""
         fi
     else
-        if read -t ${TIMEOUT} -r CHAT_ID </dev/tty; then
-            if [ -n "$CHAT_ID" ]; then
-                echo "Chat ID received."
-            else
-                echo "Chat ID not provided, skipping Telegram configuration."
-                TELEGRAM_BOT_TOKEN=""
-                CHAT_ID=""
-            fi
-        else
-            echo ""
-            echo "Timeout reached, skipping Telegram configuration."
-            TELEGRAM_BOT_TOKEN=""
-            CHAT_ID=""
-        fi
+        echo ""
+        echo "Timeout reached, skipping Telegram configuration."
+        TELEGRAM_BOT_TOKEN=""
+        CHAT_ID=""
     fi
   fi
 fi
