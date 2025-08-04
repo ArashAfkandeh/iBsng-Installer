@@ -28,7 +28,9 @@ print_step "Updating package list and installing prerequisites"
 sudo apt update -y
 
 # Remove old versions of Docker if they exist
-apt-get remove -y docker docker-engine docker.io containerd runc || true
+for pkg in docker docker.io containerd runc; do
+    apt-get remove -y $pkg || true
+done
 
 # Install packages required to add the Docker repository
 apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail
@@ -167,24 +169,27 @@ read_with_timeout() {
   fi
 }
 
-# Get ports from user with timeout
-WEB_PORT=$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")
-RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")
-RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")
+# Get ports from user with timeout and set default values if empty
+WEB_PORT=${WEB_PORT:-$(read_with_timeout "Enter Web Panel Port" "$DEFAULT_WEB_PORT")}
+RADIUS_AUTH_PORT=${RADIUS_AUTH_PORT:-$(read_with_timeout "Enter RADIUS Authentication Port" "$DEFAULT_RADIUS_AUTH_PORT")}
+RADIUS_ACCT_PORT=${RADIUS_ACCT_PORT:-$(read_with_timeout "Enter RADIUS Accounting Port" "$DEFAULT_RADIUS_ACCT_PORT")}
 
 # Function to check if a port is in use
 check_port() {
   local port=$1
-  local proto_flag="-t" # for tcp
-  if [ "$2" == "udp" ]; then
-    proto_flag="-u" # for udp
-  fi
+  local proto=$2
 
   # Use ss (or netstat as fallback) to check for listening ports
   if command -v ss &> /dev/null; then
     # ss is faster and more modern
-    if ss -ln${proto_flag} | grep -q ":${port} "; then
-      return 1 # Port is in use
+    if [ "$proto" = "udp" ]; then
+      if ss -lnu | grep -q ":${port}"; then
+        return 1 # Port is in use
+      fi
+    else
+      if ss -lnt | grep -q ":${port}"; then
+        return 1 # Port is in use
+      fi
     fi
   elif command -v netstat &> /dev/null; then
     # Fallback to netstat if ss is not available
