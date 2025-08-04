@@ -33,7 +33,7 @@ for pkg in docker docker.io containerd runc; do
 done
 
 # Install packages required to add the Docker repository
-apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail
+apt-get install -y wget jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail apt-utils
 
 # --- Download and extract latest release from a GitHub project ---
 print_step "Downloading and extracting latest GitHub release"
@@ -285,8 +285,6 @@ print_step "Creating docker-compose.yml in ${BASE_DIR}"
 COMPOSE_FILE="${BASE_DIR}/docker-compose.yml"
 
 cat <<EOF > "$COMPOSE_FILE"
-version: '3.8'
-
 services:
   ibsng:
     image: ${IMAGE_NAME}
@@ -393,17 +391,22 @@ fi
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
+# Store the port values for final display
+FINAL_WEB_PORT=$(echo "${WEB_PORT}" | tr -d '\n')
+FINAL_AUTH_PORT=$(echo "${RADIUS_AUTH_PORT}" | tr -d '\n')
+FINAL_ACCT_PORT=$(echo "${RADIUS_ACCT_PORT}" | tr -d '\n')
+
 # Print system access information
 print_step "System Access Information"
 echo "IBSng has been successfully installed on this server."
-echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${FINAL_WEB_PORT}/IBSng/admin/\e[0m"
 echo -e "Default Username: \e[33msystem\e[0m"
 echo -e "Default Password: \e[31madmin\e[0m"
 echo ""
 echo "Your RADIUS Ports:"
-echo -e "iBsng Web-Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
-echo -e "RADIUS Auth Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
-echo -e "RADIUS Acct Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
+echo -e "iBsng Web-Panel Port (TCP): \e[36m${FINAL_WEB_PORT}\e[0m"
+echo -e "RADIUS Auth Port (UDP): \e[36m${FINAL_AUTH_PORT}\e[0m"
+echo -e "RADIUS Acct Port (UDP): \e[36m${FINAL_ACCT_PORT}\e[0m"
 echo ""
 echo "To manage the service, navigate to '${BASE_DIR}' and use:"
 echo "  - To stop: 'docker compose down'"
