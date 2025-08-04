@@ -327,6 +327,33 @@ TIMEOUT=120
 TELEGRAM_BOT_TOKEN=""
 CHAT_ID=""
 
+# Function to read Telegram input with timeout
+read_telegram_input() {
+    local prompt="$1"
+    local timeout="$2"
+    local response
+
+    # Show the prompt and wait for input
+    echo "You have ${timeout} seconds to enter the value or press Enter to skip." >&2
+    
+    # Use read with timeout, reading directly from terminal
+    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Input was provided within timeout (including empty input for skip)
+        if [ -z "$response" ]; then
+            echo "Skipped." >&2
+            echo ""
+        else
+            echo "Value received." >&2
+            echo "$response"
+        fi
+    else
+        # Only timeout occurred
+        echo "" >&2
+        echo "Timeout reached, skipping." >&2
+        echo ""
+    fi
+}
+
 # Check if both token and chat_id are provided as command-line arguments
 # We assume they are the 4th and 5th arguments, after any potential port arguments.
 if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
@@ -338,34 +365,16 @@ else
   echo "Proceeding with interactive setup (${TIMEOUT}s timeout per prompt)."
 
   # Prompt for the Telegram Bot Token with a timeout
-  if read -t ${TIMEOUT} -r -p "Enter Telegram Bot Token (or press Enter to skip): " TELEGRAM_BOT_TOKEN </dev/tty 2>/dev/null; then
-      if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-          echo "Token received."
-      else
-          echo "Skipping Telegram configuration."
-          TELEGRAM_BOT_TOKEN=""
-      fi
-  else
-      echo ""
-      echo "Timeout reached, skipping Telegram configuration."
-      TELEGRAM_BOT_TOKEN=""
-  fi
+  TELEGRAM_BOT_TOKEN=$(read_telegram_input "Enter Telegram Bot Token (or press Enter to skip)" "$TIMEOUT")
 
   # Only ask for Chat ID if a Token was provided
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    if read -t ${TIMEOUT} -r -p "Enter your Telegram Chat ID: " CHAT_ID </dev/tty 2>/dev/null; then
-        if [ -n "$CHAT_ID" ]; then
-            echo "Chat ID received."
-        else
-            echo "Chat ID not provided, skipping Telegram configuration."
-            TELEGRAM_BOT_TOKEN=""
-            CHAT_ID=""
-        fi
-    else
-        echo ""
-        echo "Timeout reached, skipping Telegram configuration."
-        TELEGRAM_BOT_TOKEN=""
-        CHAT_ID=""
+    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID" "$TIMEOUT")
+    
+    # If chat ID is empty, clear the token as well
+    if [ -z "$CHAT_ID" ]; then
+      echo "Chat ID not provided, clearing Telegram configuration."
+      TELEGRAM_BOT_TOKEN=""
     fi
   fi
 fi
