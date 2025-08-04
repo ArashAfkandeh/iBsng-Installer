@@ -74,7 +74,7 @@ rm "$TEMP_ARCHIVE"
 echo "Successfully extracted project to ${EXTRACT_DIR}"
 # --- End of GitHub download section ---
 
-sudo pip3 install -y pyTelegramBotAPI jdatetime
+sudo pip3 install pyTelegramBotAPI jdatetime
 
 # Add Docker's official GPG key and register the stable repository
 print_step "Adding the official Docker repository"
