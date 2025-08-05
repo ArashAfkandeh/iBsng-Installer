@@ -192,14 +192,26 @@ for pkg in docker docker.io containerd runc; do
     apt-get remove -y $pkg || true
 done
 
-# Install packages required to add the Docker repository
+# Install prerequisites
 apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip python3-venv dialog whiptail apt-utils
 
-# Update CA certificates without triggering rehash warning
-print_step "Updating CA certificates"
-# Run update-ca-certificates with --skip-crl to avoid rehash warning
-if ! update-ca-certificates --skip-crl; then
-    echo "Warning: Failed to update CA certificates" >&2
+# Manage CA certificates to avoid rehash warning
+print_step "Configuring CA certificates"
+# Create a temporary directory for certificate processing
+TEMP_CERT_DIR="/tmp/ca-certificates"
+mkdir -p "$TEMP_CERT_DIR"
+# Copy individual certificates to avoid processing ca-certificates.crt
+if cp /etc/ssl/certs/*.pem "$TEMP_CERT_DIR" 2>/dev/null; then
+    # Run c_rehash on individual certificates
+    if command -v c_rehash >/dev/null; then
+        c_rehash "$TEMP_CERT_DIR" >/dev/null || echo "Warning: Failed to run c_rehash on certificates" >&2
+    else
+        echo "Warning: c_rehash not found, skipping certificate hashing" >&2
+    fi
+    # Clean up temporary directory
+    rm -rf "$TEMP_CERT_DIR"
+else
+    echo "Warning: No individual .pem certificates found, skipping custom certificate processing" >&2
 fi
 
 if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
@@ -297,8 +309,8 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
       sleep 5
       break
     fi
-    echo -n "."
-    sleep 2
+    echo -n "#"
+    sleep 1
   done
   echo ""
 
@@ -417,7 +429,7 @@ EOF
 echo "docker-compose.yml with network_mode:host created successfully."
 
 # Run the service using Docker Compose
-print_step "Running the IBSng service with Docker Compose"
+print_step "Running the IBSng service with Docker Composer"
 # Check if the project has any containers (running or stopped)
 if [ -n "$(docker compose -f "${COMPOSE_FILE}" ps -q -a)" ]; then
     echo "Found existing containers for project 'ibsng'. Stopping and removing them..."
