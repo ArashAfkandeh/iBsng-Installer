@@ -568,19 +568,37 @@ echo "Script execution completed (with any possible warnings)"
 # Extract the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
-# Print system access information
-print_step "System Access Information"
-echo "IBSng has been successfully installed on this server."
-echo -e "Admin Panel URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
-echo -e "Default Username: \e[33msystem\e[0m"
-echo -e "Default Password: \e[31madmin\e[0m"
-echo ""
-echo "Your RADIUS Ports:"
-echo -e "iBsng Web-Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
-echo -e "RADIUS Auth Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
-echo -e "RADIUS Acct Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
-echo ""
-echo "To manage the service, navigate to '${BASE_DIR}' and use:"
-echo "  - To stop: 'docker compose down'"
-echo "  - To start: 'docker compose up -d'"
-echo "  - To view logs: 'docker compose logs -f'"
+# Pre-check: Evaluate backup service status early
+SERVICE_NAME="ibsng-backup.service"
+SERVICE_DISPLAY_NAME="IBSng Backup Bot"
+SERVICE_STATUS=$(systemctl is-active "$SERVICE_NAME")
+
+# Display system access information in a clean and user-friendly format
+
+print_step "🔐 System Access Information"
+
+echo -e "\n📁 To manage the service, navigate to '\e[34m${BASE_DIR}\e[0m' and use the following commands:"
+echo -e "   🛑 Stop the service: \e[33mdocker compose down\e[0m"
+echo -e "   ▶️ Start the service: \e[32mdocker compose up -d\e[0m"
+echo -e "   📜 View logs: \e[36mdocker compose logs -f\e[0m"
+
+echo -e "\n✅ IBSng has been successfully installed on this server."
+
+echo -e "\n🌐 Admin Panel Access:"
+echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+echo -e "   👤 Default Username: \e[33msystem\e[0m"
+echo -e "   🔑 Default Password: \e[31madmin\e[0m"
+
+echo -e "\n📡 RADIUS & Web Panel Ports:"
+echo -e "   🌍 IBSng Web Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+echo -e "   🔐 RADIUS Authentication Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
+echo -e "   📊 RADIUS Accounting Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
+
+# Display backup bot service status with friendly name
+if [ "$SERVICE_STATUS" = "active" ]; then
+    echo -e "\n🤖 ${SERVICE_DISPLAY_NAME} Status: \e[32mRunning\e[0m"
+else
+    echo -e "\n⚠️ ${SERVICE_DISPLAY_NAME} Status: \e[31mNot Active\e[0m"
+fi
+
+echo -e "\n🎉 You're all set and ready to go!"
