@@ -148,7 +148,6 @@ sudo systemctl restart ibsng-backup.service
   ```
 - **مشاهده لاگ‌های سرویس بکاپ:**
   ```bash
-h
   journalctl -u ibsng-backup.service -f
   ```
 - **ری‌استارت کردن سرویس:**
