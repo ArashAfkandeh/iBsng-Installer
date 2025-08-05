@@ -63,7 +63,7 @@ curl -sSL https://raw.githubusercontent.com/ArashAfkandeh/iBsng-Installer/main/i
 **مثال کامل:**
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ArashAfkandeh/iBsng-Installer/main/install_ibsng.sh | sudo bash -s -- 80 1812 1813 '123456:ABC-DEF123456' '-100123456789'
+curl -sSL https://raw.githubusercontent.com/ArashAfkandeh/iBsng-Installer/main/install_ibsng.sh | sudo bash -s -- '80' '1812' '1813' '123456:ABC-DEF123456' '-100123456789'
 ```
 
 **توضیح پارامترها:**
@@ -92,7 +92,7 @@ curl -sSL https://raw.githubusercontent.com/ArashAfkandeh/iBsng-Installer/main/i
 {
     "bot_token": "7816664753:AAGWV-tTGRoFrTsYjJS0dMRDeAEF-clVmEs",
     "chat_id": "5062027097",
-    "min_interval_hours": 2,
+    "min_interval_hours": 24,
     "last_backup": 1754370577.5221798
 }
 ```
