@@ -493,7 +493,8 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
   cat <<EOF > "$CONFIG_FILE"
 {
   "bot_token": "$TELEGRAM_BOT_TOKEN",
-  "chat_id": "$CHAT_ID"
+  "chat_id": "$CHAT_ID",
+  "min_interval_hours": 24
 }
 EOF
 
