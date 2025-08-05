@@ -40,13 +40,25 @@ if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
 fi
 
 # Create and activate virtual environment
-VENV_DIR="/opt/ibsng/backup_ibsng/venv"
+VENV_DIR="/opt/ibsng/venv"
 print_step "Setting up Python virtual environment"
-python3 -m venv "$VENV_DIR"
+if ! python3 -m venv "$VENV_DIR"; then
+    echo "Error: Failed to create virtual environment. Ensure python3-venv is installed."
+    echo "Try running: sudo apt install python3-venv"
+    exit 1
+fi
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+    echo "Error: Virtual environment was not created successfully at $VENV_DIR"
+    exit 1
+fi
 source "$VENV_DIR/bin/activate"
 
 # Install Python dependencies in the virtual environment
-pip install pyTelegramBotAPI jdatetime
+if ! pip3 install pyTelegramBotAPI jdatetime; then
+    echo "Error: Failed to install Python dependencies in the virtual environment"
+    deactivate
+    exit 1
+fi
 
 # Deactivate the virtual environment after installation
 deactivate
