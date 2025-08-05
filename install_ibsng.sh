@@ -602,3 +602,4 @@ else
 fi
 
 echo -e "\n🎉 You're all set and ready to go!"
+echo ""
