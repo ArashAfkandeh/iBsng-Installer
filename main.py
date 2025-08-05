@@ -16,17 +16,19 @@ import telebot
 import re
 from datetime import datetime
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # --- Settings ---
 CONTAINER_NAME = "ibsng"
 BACKUP_DIR = "/tmp/ibsng_backup_files"
 DB_USER = "ibs"
 DB_NAME = "IBSng"
 RETENTION_DAYS = 3
-CONFIG_FILE = "config.json"
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 MIN_INTERVAL_HOURS = 1  # Minimum interval between backups (in hours)
 POLL_INTERVAL_MINUTES = 5  # Check interval (in minutes)
-BACKUP_SCRIPT = "./backup_ibsng.sh"  # Path to backup bash script
-RESTORE_SCRIPT = "./restore_ibsng.sh"  # Path to restore bash script
+BACKUP_SCRIPT = os.path.join(BASE_DIR, "backup_ibsng.sh")  # Path to backup bash script
+RESTORE_SCRIPT = os.path.join(BASE_DIR, "restore_ibsng.sh")  # Path to restore bash script
 TEMP_DIR = "/tmp/ibsng_restore"  # Temporary directory for restore files
 # -----------------
 
