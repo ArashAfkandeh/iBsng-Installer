@@ -416,13 +416,15 @@ def main():
             status_msg = "📊 *وضعیت سیستم بکاپ*\n\n"
             
             if last_backup:
+                last_date = datetime.fromtimestamp(last_backup).strftime('%Y-%m-%d')
                 last_time = datetime.fromtimestamp(last_backup).strftime('%Y-%m-%d %H:%M:%S')
                 time_diff = time.time() - last_backup
                 hours = int(time_diff // 3600)
                 minutes = int((time_diff % 3600) // 60)
                 status_msg += f"✅ *آخرین بکاپ:*\n" \
-                             f"📅 *تاریخ:* `{last_time}`\n" \
-                             f"⏰ *زمان:* `{hours}` ساعت و `{minutes}` دقیقه پیش\n\n"
+                             f"📅 *تاریخ:* `{last_date}`\n" \
+                             f"⏰ *زمان:* `{last_time}`\n" \
+                             f"⌛️ `{hours}` ساعت و `{minutes}` دقیقه پیش\n\n"
             else:
                 status_msg += "⚠️ *وضعیت:* هنوز بکاپی انجام نشده است\n\n"
             
