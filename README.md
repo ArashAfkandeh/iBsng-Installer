@@ -120,6 +120,10 @@ sudo systemctl restart ibsng-backup.service
 
 ### نمونه تعامل با ربات
 
+**نمای ربات:**
+
+![نمای ربات پشتیبان‌گیر](bot.png)
+
 **درخواست بکاپ دستی:**
 
 > **User:** `/backup`
