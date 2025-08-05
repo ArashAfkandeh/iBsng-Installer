@@ -464,7 +464,7 @@ SOURCE_DIR="/root/iBsng-Installer"
 # List of essential files to copy
 ESSENTIAL_FILES=(
     "backup_ibsng.sh"
-    "main.py"
+    "bot.py"
     "restore_ibsng.sh"
 )
 
@@ -518,7 +518,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${VENV_DIR}/bin/python3 ${BACKUP_DIR}/main.py
+ExecStart=${VENV_DIR}/bin/python3 ${BACKUP_DIR}/bot.py
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576
