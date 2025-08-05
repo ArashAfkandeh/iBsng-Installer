@@ -232,8 +232,8 @@ if [ ! -f "$VENV_DIR/bin/activate" ]; then
 fi
 source "$VENV_DIR/bin/activate"
 
-# Install Python dependencies in the virtual environment
-if ! pip install pyTelegramBotAPI jdatetime; then
+# Install Python dependencies using the venv's pip
+if ! "$VENV_DIR/bin/python3" -m pip install pyTelegramBotAPI jdatetime; then
     echo "Error: Failed to install Python dependencies in the virtual environment"
     deactivate
     exit 1
