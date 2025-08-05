@@ -35,6 +35,13 @@ done
 # Install packages required to add the Docker repository
 apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip python3-venv dialog whiptail apt-utils
 
+# Update CA certificates without triggering rehash warning
+print_step "Updating CA certificates"
+# Run update-ca-certificates with --skip-crl to avoid rehash warning
+if ! update-ca-certificates --skip-crl; then
+    echo "Warning: Failed to update CA certificates" >&2
+fi
+
 if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
     echo "Error cloning repository, continuing..."
 fi
@@ -333,8 +340,15 @@ echo "docker-compose.yml with network_mode:host created successfully."
 
 # Run the service using Docker Compose
 print_step "Running the IBSng service with Docker Compose"
-if docker compose -f "${COMPOSE_FILE}" ps -q > /dev/null; then
-    docker compose -f "${COMPOSE_FILE}" down
+# Check if the project has any containers (running or stopped)
+if [ -n "$(docker compose -f "${COMPOSE_FILE}" ps -q -a)" ]; then
+    echo "Found existing containers for project 'ibsng'. Stopping and removing them..."
+    if ! docker compose -f "${COMPOSE_FILE}" down --remove-orphans; then
+        echo "Error: Failed to stop existing containers" >&2
+        exit 1
+    fi
+else
+    echo "No existing containers found for project 'ibsng'. Proceeding with startup..."
 fi
 docker compose -f "${COMPOSE_FILE}" up -d
 
