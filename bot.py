@@ -443,7 +443,6 @@ def main():
         
         @bot.message_handler(commands=['time'])
         def handle_time_command(message):
-            """Handle /time command in Telegram to set MIN_INTERVAL_HOURS"""
             global chat_id, config, MIN_INTERVAL_HOURS
             
             # Check user permission
@@ -456,7 +455,8 @@ def main():
                 command_text = message.text.split()
                 if len(command_text) != 2:
                     bot.reply_to(message,
-                    "❌ لطفاً مقدار عددی را وارد کنید. مثال:\n"
+                    "❌ دستور را به همراه مقدار عددی وارد کنید.\n"
+                    "مثال:\n"
                     "/time 24"
                     )
                     return
@@ -465,7 +465,8 @@ def main():
                 # Validation for natural (correct and positive)
                 if new_interval <= 0 or new_interval != int(new_interval):
                     bot.reply_to(message,
-                    "❌ مقدار باید یک عدد طبیعی (صحیح و مثبت) باشد! مثال:\n"
+                    "❌ مقدار باید یک عدد طبیعی (صحیح و مثبت) باشد!\n"
+                    "مثال:\n"
                     "/time 24"
                     )
                     return
@@ -482,7 +483,8 @@ def main():
                         
             except ValueError:
                 bot.reply_to(message,
-                "❌ لطفاً یک مقدار عددی معتبر وارد کنید. مثال:\n"
+                "❌ دستور را با یک مقدار عددی معتبر وارد کنید.\n"
+                "مثال:\n"
                 "/time 24")
         
         @bot.message_handler(content_types=['document'])
