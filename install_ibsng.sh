@@ -23,6 +23,168 @@ print_step() {
   echo "----------------------------------------------"
 }
 
+# --- START: Collect Interactive Inputs ---
+print_step "Collecting Interactive Inputs"
+
+# --- START: Host Network Port Validation ---
+# Define default ports
+DEFAULT_WEB_PORT=80
+DEFAULT_RADIUS_AUTH_PORT=1812
+DEFAULT_RADIUS_ACCT_PORT=1813
+
+# Function to read input with timeout and return clean value
+read_with_timeout() {
+    local prompt="$1"
+    local default_value="$2"
+    local timeout=60
+    local response
+
+    # Show the prompt with colored lines and clear instructions
+    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
+    echo -e "\e[33m${prompt}\e[0m" >&2
+    echo -e "\e[32mYou have ${timeout} seconds to enter a custom port or press Enter to use default (${default_value}).\e[0m" >&2
+    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
+    
+    # Use read with timeout, reading directly from terminal
+    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Input was provided within timeout (including empty input)
+        if [ -z "$response" ]; then
+            echo -e "\e[32mUsing default value: $default_value\e[0m" >&2
+            echo "$default_value"
+        elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
+            echo -e "\e[31mInvalid input, using default value: $default_value\e[0m" >&2
+            echo "$default_value"
+        else
+            echo -e "\e[32mUsing custom value: $response\e[0m" >&2
+            echo "$response"
+        fi
+    else
+        # Only timeout occurred (not user pressing Enter)
+        echo "" >&2
+        echo -e "\e[31mTimeout reached, using default value: $default_value\e[0m" >&2
+        echo "$default_value"
+    fi
+}
+
+# Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
+WEB_PORT=${1:-""}
+RADIUS_AUTH_PORT=${2:-""}
+RADIUS_ACCT_PORT=${3:-""}
+
+# If any port is not provided in arguments, ask interactively
+if [ -z "$WEB_PORT" ]; then
+  echo -e "\e[31mWeb port not provided in arguments.\e[0m"
+  WEB_PORT=$(read_with_timeout "Enter Web Panel Port (e.g., 80)" "$DEFAULT_WEB_PORT")
+  # Clean the result immediately
+  WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
+fi
+
+if [ -z "$RADIUS_AUTH_PORT" ]; then
+  echo -e "\e[31mRADIUS Authentication port not provided in arguments.\e[0m"
+  RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port (e.g., 1812)" "$DEFAULT_RADIUS_AUTH_PORT")
+  # Clean the result immediately
+  RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
+fi
+
+if [ -z "$RADIUS_ACCT_PORT" ]; then
+  echo -e "\e[31mRADIUS Accounting port not provided in arguments.\e[0m"
+  RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port (e.g., 1813)" "$DEFAULT_RADIUS_ACCT_PORT")
+  # Clean the result immediately
+  RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
+fi
+
+# Export cleaned variables
+export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
+
+# Show selected ports
+echo ""
+echo -e "\e[34m--------------------------------------------------\e[0m"
+echo -e "\e[33mSelected ports:\e[0m"
+echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
+echo -e "\e[32mRADIUS Authentication Port: ${RADIUS_AUTH_PORT}\e[0m"
+echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
+echo -e "\e[34m--------------------------------------------------\e[0m"
+# --- END: Host Network Port Validation ---
+
+# --- START: Telegram Bot Config with Arguments, Interactive Fallback, and 120s Timeout ---
+print_step "Configuring Telegram Bot for Backups (Optional)"
+echo -e "\e[34m--------------------------------------------------\e[0m"
+echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID>\e[0m"
+echo -e "\e[32mYou will be prompted to enter the Telegram Bot Token and Chat ID if not provided as arguments.\e[0m"
+echo -e "\e[34m--------------------------------------------------\e[0m"
+
+# Define the timeout for interactive prompts
+TIMEOUT=120
+
+# Initialize variables to be empty
+TELEGRAM_BOT_TOKEN=""
+CHAT_ID=""
+
+# Function to read Telegram input with timeout
+read_telegram_input() {
+    local prompt="$1"
+    local timeout="$2"
+    local response
+
+    # Show the prompt with colored lines and specific instructions
+    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
+    echo -e "\e[33m${prompt}\e[0m" >&2
+    if [[ "$prompt" == *"Bot Token"* ]]; then
+        echo -e "\e[32mGet your Telegram Bot Token from \e[36mt.me/BotFather\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+    else
+        echo -e "\e[32mGet your Telegram Chat ID from \e[36mt.me/chatIDrobot\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+    fi
+    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
+    
+    # Use read with timeout, reading directly from terminal
+    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Input was provided within timeout (including empty input for skip)
+        if [ -z "$response" ]; then
+            echo -e "\e[32mSkipped.\e[0m" >&2
+            echo ""
+        else
+            echo -e "\e[32mValue received.\e[0m" >&2
+            echo "$response"
+        fi
+    else
+        # Only timeout occurred
+        echo "" >&2
+        echo -e "\e[31mTimeout reached, skipping.\e[0m" >&2
+        echo ""
+    fi
+}
+
+# Check if both token and chat_id are provided as command-line arguments
+# Adjust argument positions since ports are now collected first
+if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
+  echo -e "\e[32mUsing Telegram Bot Token and Chat ID from command-line arguments.\e[0m"
+  TELEGRAM_BOT_TOKEN="$4"
+  CHAT_ID="$5"
+else
+  # If arguments are not provided, switch to interactive mode
+  echo -e "\e[33mProceeding with interactive setup (${TIMEOUT}s timeout per prompt).\e[0m"
+
+  # Prompt for the Telegram Bot Token with a timeout
+  TELEGRAM_BOT_TOKEN=$(read_telegram_input "Enter Telegram Bot Token" "$TIMEOUT")
+
+  # Only ask for Chat ID if a Token was provided
+  if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID" "$TIMEOUT")
+    
+    # If chat ID is empty, clear the token as well
+    if [ -z "$CHAT_ID" ]; then
+      echo -e "\e[31mChat ID not provided, clearing Telegram configuration.\e[0m"
+      TELEGRAM_BOT_TOKEN=""
+    fi
+  fi
+fi
+# --- END: Telegram Bot Config ---
+
+# --- END: Collect Interactive Inputs ---
+
 # Update package list and install prerequisites
 print_step "Updating package list and installing prerequisites"
 sudo apt update -y
@@ -164,87 +326,6 @@ fi
 # --- START: Host Network Port Validation ---
 print_step "Validating Required Ports for Host Network Mode"
 
-# Define default ports
-DEFAULT_WEB_PORT=80
-DEFAULT_RADIUS_AUTH_PORT=1812
-DEFAULT_RADIUS_ACCT_PORT=1813
-
-# Function to read input with timeout and return clean value
-read_with_timeout() {
-    local prompt="$1"
-    local default_value="$2"
-    local timeout=60
-    local response
-
-    # Show the prompt with colored lines and clear instructions
-    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    echo -e "\e[33m${prompt}\e[0m" >&2
-    echo -e "\e[32mYou have ${timeout} seconds to enter a custom port or press Enter to use default (${default_value}).\e[0m" >&2
-    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    
-    # Use read with timeout, reading directly from terminal
-    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
-        # Input was provided within timeout (including empty input)
-        if [ -z "$response" ]; then
-            echo -e "\e[32mUsing default value: $default_value\e[0m" >&2
-            echo "$default_value"
-        elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
-            echo -e "\e[31mInvalid input, using default value: $default_value\e[0m" >&2
-            echo "$default_value"
-        else
-            echo -e "\e[32mUsing custom value: $response\e[0m" >&2
-            echo "$response"
-        fi
-    else
-        # Only timeout occurred (not user pressing Enter)
-        echo "" >&2
-        echo -e "\e[31mTimeout reached, using default value: $default_value\e[0m" >&2
-        echo "$default_value"
-    fi
-}
-
-# Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
-WEB_PORT=${1:-""}
-RADIUS_AUTH_PORT=${2:-""}
-RADIUS_ACCT_PORT=${3:-""}
-
-# If any port is not provided in arguments, ask interactively
-if [ -z "$WEB_PORT" ]; then
-  echo -e "\e[31mWeb port not provided in arguments.\e[0m"
-  WEB_PORT=$(read_with_timeout "Enter Web Panel Port (e.g., 80)" "$DEFAULT_WEB_PORT")
-  # Clean the result immediately
-  WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
-  WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
-fi
-
-if [ -z "$RADIUS_AUTH_PORT" ]; then
-  echo -e "\e[31mRADIUS Authentication port not provided in arguments.\e[0m"
-  RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port (e.g., 1812)" "$DEFAULT_RADIUS_AUTH_PORT")
-  # Clean the result immediately
-  RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
-  RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
-fi
-
-if [ -z "$RADIUS_ACCT_PORT" ]; then
-  echo -e "\e[31mRADIUS Accounting port not provided in arguments.\e[0m"
-  RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port (e.g., 1813)" "$DEFAULT_RADIUS_ACCT_PORT")
-  # Clean the result immediately
-  RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
-  RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
-fi
-
-# Export cleaned variables
-export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
-
-# Show selected ports
-echo ""
-echo -e "\e[34m--------------------------------------------------\e[0m"
-echo -e "\e[33mSelected ports:\e[0m"
-echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
-echo -e "\e[32mRADIUS Authentication Port: ${RADIUS_AUTH_PORT}\e[0m"
-echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
-echo -e "\e[34m--------------------------------------------------\e[0m"
-
 # Function to check if a port is in use
 check_port() {
   local port=$1
@@ -263,8 +344,7 @@ check_port() {
       fi
     fi
   elif command -v netstat &> /dev/null; then
-    # Fallback to netstat if ss is not available.  Determine the appropriate
-    # protocol flag (-t for TCP, -u for UDP) based on the requested protocol.
+    # Fallback to netstat if ss is not available
     local proto_flag=""
     if [ "$proto" = "udp" ]; then
       proto_flag="u"
@@ -368,100 +448,6 @@ echo "IBSng service is now running and ready."
 
 # Set the timezone to Asia/Tehran
 sudo timedatectl set-timezone Asia/Tehran
-
-# --- START: Telegram Bot Config with Arguments, Interactive Fallback, and 120s Timeout ---
-print_step "Configuring Telegram Bot for Backups (Optional)"
-echo -e "\e[34m--------------------------------------------------\e[0m"
-echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID>\e[0m"
-echo -e "\e[32mYou will be prompted to enter the Telegram Bot Token and Chat ID if not provided as arguments.\e[0m"
-echo -e "\e[34m--------------------------------------------------\e[0m"
-
-# Define the timeout for interactive prompts
-TIMEOUT=120
-
-# Initialize variables to be empty
-TELEGRAM_BOT_TOKEN=""
-CHAT_ID=""
-
-# Function to read Telegram input with timeout
-read_telegram_input() {
-    local prompt="$1"
-    local timeout="$2"
-    local response
-
-    # Show the prompt with colored lines and specific instructions
-    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    echo -e "\e[33m${prompt}\e[0m" >&2
-    if [[ "$prompt" == *"Bot Token"* ]]; then
-        echo -e "\e[32mGet your Telegram Bot Token from \e[36mt.me/BotFather\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
-    else
-        echo -e "\e[32mGet your Telegram Chat ID from \e[36mt.me/chatIDrobot\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
-    fi
-    echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    
-    # Use read with timeout, reading directly from terminal
-    if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
-        # Input was provided within timeout (including empty input for skip)
-        if [ -z "$response" ]; then
-            echo -e "\e[32mSkipped.\e[0m" >&2
-            echo ""
-        else
-            echo -e "\e[32mValue received.\e[0m" >&2
-            echo "$response"
-        fi
-    else
-        # Only timeout occurred
-        echo "" >&2
-        echo -e "\e[31mTimeout reached, skipping.\e[0m" >&2
-        echo ""
-    fi
-}
-
-# Check if both token and chat_id are provided as command-line arguments
-# We assume they are the 4th and 5th arguments, after any potential port arguments.
-if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
-  echo -e "\e[32mUsing Telegram Bot Token and Chat ID from command-line arguments.\e[0m"
-  TELEGRAM_BOT_TOKEN="$4"
-  CHAT_ID="$5"
-else
-  # If arguments are not provided, switch to interactive mode
-  echo -e "\e[33mProceeding with interactive setup (${TIMEOUT}s timeout per prompt).\e[0m"
-
-  # Prompt for the Telegram Bot Token with a timeout
-  TELEGRAM_BOT_TOKEN=$(read_telegram_input "Enter Telegram Bot Token" "$TIMEOUT")
-
-  # Only ask for Chat ID if a Token was provided
-  if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID" "$TIMEOUT")
-    
-    # If chat ID is empty, clear the token as well
-    if [ -z "$CHAT_ID" ]; then
-      echo -e "\e[31mChat ID not provided, clearing Telegram configuration.\e[0m"
-      TELEGRAM_BOT_TOKEN=""
-    fi
-  fi
-fi
-
-# Final check: Create the config file only if BOTH variables have a value
-if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-  CONFIG_FILE="${BACKUP_DIR}/config.json"
-
-  # Create the config.json file
-  cat <<EOF > "$CONFIG_FILE"
-{
-  "bot_token": "$TELEGRAM_BOT_TOKEN",
-  "chat_id": "$CHAT_ID"
-}
-EOF
-
-  # Set appropriate permissions
-  chmod 600 "$CONFIG_FILE"
-  echo -e "\e[32mTelegram configuration has been successfully saved to ${CONFIG_FILE}\e[0m"
-else
-  # This message is shown if any part of the process was skipped or timed out
-  echo -e "\e[31mTelegram Token or Chat ID not provided. Skipping Telegram configuration.\e[0m"
-fi
-# --- END: Telegram Bot Config ---
 
 SOURCE_DIR="/root/iBsng-Installer"
 
