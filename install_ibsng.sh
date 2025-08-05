@@ -107,8 +107,10 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
       sleep 5
       break
     fi
+    echo -n "."
     sleep 2
   done
+  echo ""
 
   # Copy the fully initialized database directory to the host.  We use the
   # trailing `.` to copy the contents rather than the parent folder itself.
@@ -303,7 +305,9 @@ echo "docker-compose.yml with network_mode:host created successfully."
 
 # Run the service using Docker Compose
 print_step "Running the IBSng service with Docker Compose"
-docker compose -f "${COMPOSE_FILE}" down
+if docker compose -f "${COMPOSE_FILE}" ps -q > /dev/null; then
+    docker compose -f "${COMPOSE_FILE}" down
+fi
 docker compose -f "${COMPOSE_FILE}" up -d
 
 # Wait for the service to fully start and then restart once to ensure proper initialization
@@ -449,7 +453,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 $BACKUP_DIR/main.py
+ExecStart=/usr/bin/python3 ${BACKUP_DIR}/main.py
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576
