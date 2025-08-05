@@ -120,7 +120,7 @@ def check_backup_interval(config_data):
     if last_backup:
         current_time = time.time()
         time_diff = current_time - last_backup
-        min_interval_seconds = min_interval_hours * 3600
+        min_interval_seconds = min_interval_hours * 3570
         
         if time_diff < min_interval_seconds:
             remaining_time = min_interval_seconds - time_diff
@@ -417,7 +417,7 @@ def main():
             
             if last_backup:
                 last_date = datetime.fromtimestamp(last_backup).strftime('%Y-%m-%d')
-                last_time = datetime.fromtimestamp(last_backup).strftime('%Y-%m-%d %H:%M:%S')
+                last_time = datetime.fromtimestamp(last_backup).strftime('%H:%M:%S')
                 time_diff = time.time() - last_backup
                 hours = int(time_diff // 3600)
                 minutes = int((time_diff % 3600) // 60)
@@ -500,7 +500,7 @@ def main():
                        "• `.bak`\n" \
                        "• `.dump.gz`\n\n" \
                        "📤 لطفاً فایل بکاپ معتبر را ارسال کنید\n\n" \
-                       "❌ برای لغو:"
+                       "❌ برای لغو:" \
                        "/cancel"
             
             bot.reply_to(message, guide_msg, parse_mode="Markdown")
