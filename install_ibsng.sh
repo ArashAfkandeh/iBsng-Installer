@@ -39,7 +39,17 @@ if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
     echo "Error cloning repository, continuing..."
 fi
 
-sudo pip3 install pyTelegramBotAPI jdatetime
+# Create and activate virtual environment
+VENV_DIR="/opt/ibsng/backup_ibsng/venv"
+print_step "Setting up Python virtual environment"
+python3 -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+
+# Install Python dependencies in the virtual environment
+pip install pyTelegramBotAPI jdatetime
+
+# Deactivate the virtual environment after installation
+deactivate
 
 # Add Docker's official GPG key and register the stable repository
 print_step "Adding the official Docker repository"
@@ -66,11 +76,12 @@ print_step "Pulling IBSng image from Docker Hub"
 IMAGE_NAME="epsil0n/ibsng:1.25"
 docker pull "$IMAGE_NAME"
 
-# Create a path for persistent data storage
-# First, we define the base directory and the database path
+# Create paths for persistent data storage
+# First, we define the base directory, database path, and backup directory
 BASE_DIR="/opt/ibsng"
 DATA_DIR="${BASE_DIR}/pgsql"
-mkdir -p "$BASE_DIR"
+BACKUP_DIR="${BASE_DIR}/backup_ibsng"
+mkdir -p "$BASE_DIR" "$DATA_DIR" "$BACKUP_DIR"
 
 # ----------------------------------------------------------------------------
 # Initialize persistent PostgreSQL data if it doesn't already exist
@@ -151,22 +162,9 @@ read_with_timeout() {
     echo -e "\e[33m${prompt}\e[0m" >&2
     echo -e "\e[32mYou have ${timeout} seconds to enter a custom port or press Enter to use default (${default_value}).\e[0m" >&2
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-
-    # Start countdown in the background
-    (
-        for ((i=$timeout; i>=0; i--)); do
-            echo -ne "\e[31mTime remaining: $i seconds\r\e[0m" >&2
-            sleep 1
-        done
-    ) &
-    local countdown_pid=$!
-
+    
     # Use read with timeout, reading directly from terminal
     if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
-        # Stop the countdown
-        kill $countdown_pid 2>/dev/null || true
-        echo -ne "\033[K" >&2 # Clear the countdown line
-
         # Input was provided within timeout (including empty input)
         if [ -z "$response" ]; then
             echo -e "\e[32mUsing default value: $default_value\e[0m" >&2
@@ -179,16 +177,13 @@ read_with_timeout() {
             echo "$response"
         fi
     else
-        # Stop the countdown
-        kill $countdown_pid 2>/dev/null || true
-        echo -ne "\033[K" >&2 # Clear the countdown line
-
         # Only timeout occurred (not user pressing Enter)
         echo "" >&2
         echo -e "\e[31mTimeout reached, using default value: $default_value\e[0m" >&2
         echo "$default_value"
     fi
 }
+
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
 WEB_PORT=${1:-""}
 RADIUS_AUTH_PORT=${2:-""}
@@ -352,8 +347,7 @@ sudo timedatectl set-timezone Asia/Tehran
 print_step "Configuring Telegram Bot for Backups (Optional)"
 echo -e "\e[34m--------------------------------------------------\e[0m"
 echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID>\e[0m"
-echo -e "\e[32mTo get a Telegram Bot Token, contact \e[36mt.me/BotFather\e[0m"
-echo -e "\e[32mTo get your Telegram Chat ID, contact \e[36mt.me/chatIDrobot\e[0m"
+echo -e "\e[32mYou will be prompted to enter the Telegram Bot Token and Chat ID if not provided as arguments.\e[0m"
 echo -e "\e[34m--------------------------------------------------\e[0m"
 
 # Define the timeout for interactive prompts
@@ -369,27 +363,18 @@ read_telegram_input() {
     local timeout="$2"
     local response
 
-    # Show the prompt with colored lines and clear instructions
+    # Show the prompt with colored lines and specific instructions
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
     echo -e "\e[33m${prompt}\e[0m" >&2
-    echo -e "\e[32mYou have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+    if [[ "$prompt" == *"Bot Token"* ]]; then
+        echo -e "\e[32mGet your Telegram Bot Token from \e[36mt.me/BotFather\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+    else
+        echo -e "\e[32mGet your Telegram Chat ID from \e[36mt.me/chatIDrobot\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+    fi
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-
-    # Start countdown in the background
-    (
-        for ((i=$timeout; i>=0; i--)); do
-            echo -ne "\e[31mTime remaining: $i seconds\r\e[0m" >&2
-            sleep 1
-        done
-    ) &
-    local countdown_pid=$!
-
+    
     # Use read with timeout, reading directly from terminal
     if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
-        # Stop the countdown
-        kill $countdown_pid 2>/dev/null || true
-        echo -ne "\033[K" >&2 # Clear the countdown line
-
         # Input was provided within timeout (including empty input for skip)
         if [ -z "$response" ]; then
             echo -e "\e[32mSkipped.\e[0m" >&2
@@ -399,16 +384,13 @@ read_telegram_input() {
             echo "$response"
         fi
     else
-        # Stop the countdown
-        kill $countdown_pid 2>/dev/null || true
-        echo -ne "\033[K" >&2 # Clear the countdown line
-
         # Only timeout occurred
         echo "" >&2
         echo -e "\e[31mTimeout reached, skipping.\e[0m" >&2
         echo ""
     fi
 }
+
 # Check if both token and chat_id are provided as command-line arguments
 # We assume they are the 4th and 5th arguments, after any potential port arguments.
 if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
@@ -420,11 +402,11 @@ else
   echo -e "\e[33mProceeding with interactive setup (${TIMEOUT}s timeout per prompt).\e[0m"
 
   # Prompt for the Telegram Bot Token with a timeout
-  TELEGRAM_BOT_TOKEN=$(read_telegram_input "Enter Telegram Bot Token (get from t.me/BotFather)" "$TIMEOUT")
+  TELEGRAM_BOT_TOKEN=$(read_telegram_input "Enter Telegram Bot Token" "$TIMEOUT")
 
   # Only ask for Chat ID if a Token was provided
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID (get from t.me/chatIDrobot)" "$TIMEOUT")
+    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID" "$TIMEOUT")
     
     # If chat ID is empty, clear the token as well
     if [ -z "$CHAT_ID" ]; then
@@ -436,11 +418,7 @@ fi
 
 # Final check: Create the config file only if BOTH variables have a value
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-  BACKUP_DIR="${BASE_DIR}/backup_ibsng"
   CONFIG_FILE="${BACKUP_DIR}/config.json"
-  mkdir -p "$BACKUP_DIR" || {
-    echo -e "\e[31mError: Failed to create backup directory\e[0m" >&2
-  }
 
   # Create the config.json file
   cat <<EOF > "$CONFIG_FILE"
@@ -489,7 +467,7 @@ done
 print_step "Installing and Enabling Backup Service"
 
 # Create service file with error handling
-if ! sudo tee /etc/systemd/system/ibsng-backup.service > /dev/null << 'EOL'
+if ! sudo tee /etc/systemd/system/ibsng-backup.service > /dev/null << EOL
 [Unit]
 Description=IBSng Backup Service with Telegram Integration
 After=network-online.target
@@ -497,7 +475,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 ${BACKUP_DIR}/main.py
+ExecStart=${VENV_DIR}/bin/python3 ${BACKUP_DIR}/main.py
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576
