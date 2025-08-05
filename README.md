@@ -90,8 +90,10 @@ curl -sSL https://raw.githubusercontent.com/ArashAfkandeh/iBsng-Installer/main/i
 
 ```json
 {
-  "bot_token": "TOKEN_BOT_TELEGRAM_SHOMA",
-  "chat_id": "CHAT_ID_TELEGRAM_SHOMA"
+    "bot_token": "7816664753:AAGWV-tTGRoFrTsYjJS0dMRDeAEF-clVmEs",
+    "chat_id": "5062027097",
+    "min_interval_hours": 2,
+    "last_backup": 1754370577.5221798
 }
 ```
 
