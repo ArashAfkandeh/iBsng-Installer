@@ -25,8 +25,8 @@ DB_USER = "ibs"
 DB_NAME = "IBSng"
 RETENTION_DAYS = 3
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-MIN_INTERVAL_HOURS = 2  # Minimum interval between backups (in hours)
-POLL_INTERVAL_HOURS = 1  # Check interval (in hours)
+MIN_INTERVAL_HOURS = None  # Initial value None, set in load_config
+POLL_INTERVAL_MINUTES = 60  # Check interval (in minutes)
 BACKUP_SCRIPT = os.path.join(BASE_DIR, "backup_ibsng.sh")  # Path to backup bash script
 RESTORE_SCRIPT = os.path.join(BASE_DIR, "restore_ibsng.sh")  # Path to restore bash script
 TEMP_DIR = "/tmp/ibsng_restore"  # Temporary directory for restore files
@@ -45,7 +45,7 @@ chat_id = None
 
 def load_config():
     """Load settings from config file"""
-    global config, bot_token, chat_id
+    global config, bot_token, chat_id, MIN_INTERVAL_HOURS
     try:
         with config_lock:
             if os.path.exists(CONFIG_FILE):
@@ -53,9 +53,18 @@ def load_config():
                     config = json.load(f)
                     bot_token = config.get('bot_token')
                     chat_id = config.get('chat_id')
+                    # Read MIN_INTERVAL_HOURS and validate as a natural number
+                    min_interval = config.get('min_interval_hours', 24)
+                    if not isinstance(min_interval, (int, float)) or min_interval <= 0 or min_interval != int(min_interval):
+                        print(f"❌ Invalid min_interval_hours in config: {min_interval}. Using default 24.")
+                        MIN_INTERVAL_HOURS = 24
+                    else:
+                        MIN_INTERVAL_HOURS = int(min_interval)
             return config
     except Exception as e:
         print(f"❌ Error reading config file: {str(e)}")
+        # Set default value in case of error
+        MIN_INTERVAL_HOURS = 24
         return {}
 
 def save_config(config_data):
@@ -292,10 +301,10 @@ def backup_polling_thread():
             print("⚠️ Backup not performed in this check")
         
         # Calculate wait time until next check
-        wait_seconds = POLL_INTERVAL_HOURS * 3600
-        wait_hours = POLL_INTERVAL_HOURS
+        wait_seconds = POLL_INTERVAL_MINUTES * 60  # Convert minutes to seconds
+        wait_minutes = POLL_INTERVAL_MINUTES
         
-        print(f"⏳ Waiting until next check: {wait_hours} hours")
+        print(f"⏳ Waiting until next check: {wait_minutes} minutes")
         
         # Wait with periodic check for shutdown signal
         for _ in range(wait_seconds):
@@ -303,13 +312,12 @@ def backup_polling_thread():
                 break
             time.sleep(1)
 
-# Main function for Polling mode
 def main():
     """Main function for Polling mode and Telegram bot"""
     global bot, bot_token, chat_id
     
     print("🔄 Starting automatic backup polling mode")
-    print(f"   - Check interval: every {POLL_INTERVAL_HOURS} hours")
+    print(f"   - Check interval: every {POLL_INTERVAL_MINUTES} minutes")
     print(f"   - Minimum backup interval: every {MIN_INTERVAL_HOURS} hours")
     print(f"   - Backup script: {BACKUP_SCRIPT}")
     print(f"   - Restore script: {RESTORE_SCRIPT}")
@@ -332,10 +340,12 @@ def main():
         
         # Define bot commands
         def set_bot_commands():
+            """Set Telegram bot commands"""
             commands = [
                 telebot.types.BotCommand("status", "وضعیت"),
                 telebot.types.BotCommand("restore", "بازیابی"),
-                telebot.types.BotCommand("backup", "پشتیبان‌گیری")
+                telebot.types.BotCommand("backup", "پشتیبان‌گیری"),
+                telebot.types.BotCommand("time", "تنظیم بازه بکاپ (ساعت)")
             ]
             bot.set_my_commands(commands)
         
@@ -430,6 +440,50 @@ def main():
                 bot.reply_to(message, "✅ عملیات بازیابی لغو شد.")
             else:
                 bot.reply_to(message, "❌ هیچ عملیات فعال برای لغو وجود ندارد.")
+        
+        @bot.message_handler(commands=['time'])
+        def handle_time_command(message):
+            """Handle /time command in Telegram to set MIN_INTERVAL_HOURS"""
+            global chat_id, config, MIN_INTERVAL_HOURS
+            
+            # Check user permission
+            if str(message.chat.id) != str(chat_id):
+                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
+                return
+            
+            # Extract the numeric value from the command
+            try:
+                command_text = message.text.split()
+                if len(command_text) != 2:
+                    bot.reply_to(message,
+                    "❌ لطفاً مقدار عددی را وارد کنید. مثال:\n"
+                    "/time 24"
+                    )
+                    return
+                
+                new_interval = float(command_text[1])
+                # Validation for natural (correct and positive)
+                if new_interval <= 0 or new_interval != int(new_interval):
+                    bot.reply_to(message,
+                    "❌ مقدار باید یک عدد طبیعی (صحیح و مثبت) باشد! مثال:\n"
+                    "/time 24"
+                    )
+                    return
+                
+                new_interval = int(new_interval)
+                # Update MIN_INTERVAL_HOURS and save to config
+                with config_lock:
+                    MIN_INTERVAL_HOURS = new_interval
+                    config['min_interval_hours'] = new_interval
+                    if save_config(config):
+                        bot.reply_to(message, f"✅ بازه حداقل بکاپ به {new_interval} ساعت تنظیم شد.")
+                    else:
+                        bot.reply_to(message, "❌ خطا در ذخیره تنظیمات!")
+                        
+            except ValueError:
+                bot.reply_to(message,
+                "❌ لطفاً یک مقدار عددی معتبر وارد کنید. مثال:\n"
+                "/time 24")
         
         @bot.message_handler(content_types=['document'])
         def handle_document(message):
