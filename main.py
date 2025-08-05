@@ -25,8 +25,8 @@ DB_USER = "ibs"
 DB_NAME = "IBSng"
 RETENTION_DAYS = 3
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-MIN_INTERVAL_HOURS = 1  # Minimum interval between backups (in hours)
-POLL_INTERVAL_MINUTES = 5  # Check interval (in minutes)
+MIN_INTERVAL_HOURS = 2  # Minimum interval between backups (in hours)
+POLL_INTERVAL_HOURS = 1  # Check interval (in hours)
 BACKUP_SCRIPT = os.path.join(BASE_DIR, "backup_ibsng.sh")  # Path to backup bash script
 RESTORE_SCRIPT = os.path.join(BASE_DIR, "restore_ibsng.sh")  # Path to restore bash script
 TEMP_DIR = "/tmp/ibsng_restore"  # Temporary directory for restore files
@@ -292,10 +292,10 @@ def backup_polling_thread():
             print("⚠️ Backup not performed in this check")
         
         # Calculate wait time until next check
-        wait_seconds = POLL_INTERVAL_MINUTES * 60
-        wait_minutes = POLL_INTERVAL_MINUTES
+        wait_seconds = POLL_INTERVAL_HOURS * 3600
+        wait_hours = POLL_INTERVAL_HOURS
         
-        print(f"⏳ Waiting until next check: {wait_minutes} minutes")
+        print(f"⏳ Waiting until next check: {wait_hours} hours")
         
         # Wait with periodic check for shutdown signal
         for _ in range(wait_seconds):
@@ -309,7 +309,7 @@ def main():
     global bot, bot_token, chat_id
     
     print("🔄 Starting automatic backup polling mode")
-    print(f"   - Check interval: every {POLL_INTERVAL_MINUTES} minutes")
+    print(f"   - Check interval: every {POLL_INTERVAL_HOURS} hours")
     print(f"   - Minimum backup interval: every {MIN_INTERVAL_HOURS} hours")
     print(f"   - Backup script: {BACKUP_SCRIPT}")
     print(f"   - Restore script: {RESTORE_SCRIPT}")
