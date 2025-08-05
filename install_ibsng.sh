@@ -109,7 +109,7 @@ echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
 echo -e "\e[34m--------------------------------------------------\e[0m"
 # --- END: Host Network Port Validation ---
 
-# --- START: Telegram Bot Config with Arguments, Interactive Fallback, and 120s Timeout ---
+# --- START: Telegram Bot Config (Interactive Part) ---
 print_step "Configuring Telegram Bot for Backups (Optional)"
 echo -e "\e[34m--------------------------------------------------\e[0m"
 echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID>\e[0m"
@@ -158,7 +158,6 @@ read_telegram_input() {
 }
 
 # Check if both token and chat_id are provided as command-line arguments
-# Adjust argument positions since ports are now collected first
 if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
   echo -e "\e[32mUsing Telegram Bot Token and Chat ID from command-line arguments.\e[0m"
   TELEGRAM_BOT_TOKEN="$4"
@@ -181,8 +180,7 @@ else
     fi
   fi
 fi
-# --- END: Telegram Bot Config ---
-
+# --- END: Telegram Bot Config (Interactive Part) ---
 # --- END: Collect Interactive Inputs ---
 
 # Update package list and install prerequisites
@@ -474,6 +472,27 @@ for file in "${ESSENTIAL_FILES[@]}"; do
     fi
 done
 # --- END: Copy Essential Files ---
+
+# Final check: Create the config file only if BOTH variables have a value
+if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+  CONFIG_FILE="${BACKUP_DIR}/config.json"
+
+  # Create the config.json file
+  cat <<EOF > "$CONFIG_FILE"
+{
+  "bot_token": "$TELEGRAM_BOT_TOKEN",
+  "chat_id": "$CHAT_ID"
+}
+EOF
+
+  # Set appropriate permissions
+  chmod 600 "$CONFIG_FILE"
+  echo -e "\e[32mTelegram configuration has been successfully saved to ${CONFIG_FILE}\e[0m"
+else
+  # This message is shown if any part of the process was skipped or timed out
+  echo -e "\e[31mTelegram Token or Chat ID not provided. Skipping Telegram configuration.\e[0m"
+fi
+# --- END: Telegram Bot Config ---
 
 # --- START: Service Installation ---
 print_step "Installing and Enabling Backup Service"
