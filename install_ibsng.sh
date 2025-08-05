@@ -33,7 +33,7 @@ for pkg in docker docker.io containerd runc; do
 done
 
 # Install packages required to add the Docker repository
-apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip dialog whiptail apt-utils
+apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip python3-venv dialog whiptail apt-utils
 
 if ! git clone https://github.com/ArashAfkandeh/iBsng-Installer.git; then
     echo "Error cloning repository, continuing..."
