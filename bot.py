@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-
 # ======================================================================== #
 # Python version with Telegram integration, time control, and Polling mode #
 # ======================================================================== #
-
 import os
 import subprocess
 import time
@@ -25,8 +23,8 @@ DB_USER = "ibs"
 DB_NAME = "IBSng"
 RETENTION_DAYS = 3
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-MIN_INTERVAL_HOURS = None  # Initial value None, set in load_config
-POLL_INTERVAL_MINUTES = 60  # Check interval (in minutes)
+MIN_INTERVAL_HOURS = 2  # Minimum interval between backups (in hours)
+POLL_INTERVAL_HOURS = 1  # Check interval (in hours)
 BACKUP_SCRIPT = os.path.join(BASE_DIR, "backup_ibsng.sh")  # Path to backup bash script
 RESTORE_SCRIPT = os.path.join(BASE_DIR, "restore_ibsng.sh")  # Path to restore bash script
 TEMP_DIR = "/tmp/ibsng_restore"  # Temporary directory for restore files
@@ -45,7 +43,7 @@ chat_id = None
 
 def load_config():
     """Load settings from config file"""
-    global config, bot_token, chat_id, MIN_INTERVAL_HOURS
+    global config, bot_token, chat_id
     try:
         with config_lock:
             if os.path.exists(CONFIG_FILE):
@@ -53,18 +51,9 @@ def load_config():
                     config = json.load(f)
                     bot_token = config.get('bot_token')
                     chat_id = config.get('chat_id')
-                    # Read MIN_INTERVAL_HOURS and validate as a natural number
-                    min_interval = config.get('min_interval_hours', 24)
-                    if not isinstance(min_interval, (int, float)) or min_interval <= 0 or min_interval != int(min_interval):
-                        print(f"❌ Invalid min_interval_hours in config: {min_interval}. Using default 24.")
-                        MIN_INTERVAL_HOURS = 24
-                    else:
-                        MIN_INTERVAL_HOURS = int(min_interval)
             return config
     except Exception as e:
         print(f"❌ Error reading config file: {str(e)}")
-        # Set default value in case of error
-        MIN_INTERVAL_HOURS = 24
         return {}
 
 def save_config(config_data):
@@ -90,15 +79,19 @@ def send_to_telegram(file_path, bot_token, chat_id):
         # Get current time in Persian (Shamsi) calendar
         persian_date = jdatetime.datetime.now().strftime("%Y/%m/%d")
         persian_time = jdatetime.datetime.now().strftime("%H:%M:%S")
-        caption = f"فایل بکاپ IBSng\n\n" f"تاریخ: {persian_date}\n" f"زمان: {persian_time}"
-
+        caption = f"📦 *فایل بکاپ IBSng*\n\n" \
+                 f"📅 *تاریخ:* `{persian_date}`\n" \
+                 f"🕐 *زمان:* `{persian_time}`\n\n" \
+                 f"✅ *وضعیت:* بکاپ با موفقیت انجام شد"
+        
         command = [
             'curl',
             '-X', 'POST',
             f"https://api.telegram.org/bot{bot_token}/sendDocument",
             '-F', f'chat_id={chat_id}',
             '-F', f'document=@{file_path}',
-            '-F', f'caption={caption}'
+            '-F', f'caption={caption}',
+            '-F', 'parse_mode=Markdown'
         ]
         
         result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -121,16 +114,18 @@ def send_to_telegram(file_path, bot_token, chat_id):
 def check_backup_interval(config_data):
     """Check time interval since last backup"""
     last_backup = config_data.get('last_backup')
+    min_interval_hours = config_data.get('min_interval_hours', MIN_INTERVAL_HOURS)
+    
     if last_backup:
         current_time = time.time()
         time_diff = current_time - last_backup
-        min_interval = MIN_INTERVAL_HOURS * 3600  # Convert hours to seconds
+        min_interval_seconds = min_interval_hours * 3600
         
-        if time_diff < min_interval:
-            remaining_time = min_interval - time_diff
+        if time_diff < min_interval_seconds:
+            remaining_time = min_interval_seconds - time_diff
             hours = int(remaining_time // 3600)
             minutes = int((remaining_time % 3600) // 60)
-            print(f"⏱️ Last backup was less than {MIN_INTERVAL_HOURS} hours ago.")
+            print(f"⏱️ Last backup was less than {min_interval_hours} hours ago.")
             print(f"   Time remaining until next backup: {hours} hours and {minutes} minutes")
             return False
     return True
@@ -204,7 +199,7 @@ def run_backup_process(force=False):
                         print("✅ Local backup file deleted successfully.")
                     except OSError as e:
                         print(f"❌ Error deleting local backup file {backup_file_path}: {e}")
-
+                
                 # Delete old backups (This logic remains for other old files in the directory)
                 print(f"Deleting backups older than {RETENTION_DAYS} days...")
                 cutoff_time = time.time() - (RETENTION_DAYS * 86400)  # 86400 seconds = 1 day
@@ -251,25 +246,43 @@ def run_restore_process(file_path, chat_id):
                 break
             if output:
                 output_buffer += output
-                # Send output in 4000 character chunks (Telegram limit)
-                if len(output_buffer) >= 4000:
-                    bot.send_message(chat_id, f"```\n{output_buffer[:4000]}\n```", parse_mode="Markdown")
-                    output_buffer = output_buffer[4000:]
+                # Send output in 3500 character chunks (Telegram limit with markdown)
+                if len(output_buffer) >= 3500:
+                    bot.send_message(
+                        chat_id, 
+                        f"```\n{output_buffer[:3500]}\n```", 
+                        parse_mode="Markdown"
+                    )
+                    output_buffer = output_buffer[3500:]
         
         # Send remaining output
         if output_buffer:
-            bot.send_message(chat_id, f"```\n{output_buffer}\n```", parse_mode="Markdown")
+            bot.send_message(
+                chat_id, 
+                f"```\n{output_buffer}\n```", 
+                parse_mode="Markdown"
+            )
         
         # Check for errors
         stderr_output = process.stderr.read()
         if stderr_output:
-            bot.send_message(chat_id, f"❌ Errors:\n```\n{stderr_output}\n```", parse_mode="Markdown")
+            bot.send_message(
+                chat_id, 
+                f"⚠️ *خطاها:*\n```\n{stderr_output}\n```", 
+                parse_mode="Markdown"
+            )
         
         # Check final result
         if process.returncode == 0:
-            bot.send_message(chat_id, "✅ بازیابی پایگاه داده با موفقیت انجام شد!")
+            success_msg = "✅ *بازیابی پایگاه داده موفقیت‌آمیز*\n\n" \
+                         "🎉 عملیات بازیابی با موفقیت کامل شد\n" \
+                         "📊 دیتابیس به حالت قبلی بازگردانده شد"
+            bot.send_message(chat_id, success_msg, parse_mode="Markdown")
         else:
-            bot.send_message(chat_id, f"❌ بازیابی پایگاه داده ناموفق بود! کد خطا: {process.returncode}")
+            error_msg = f"❌ *بازیابی پایگاه داده ناموفق*\n\n" \
+                       f"🔴 عملیات با خطا مواجه شد\n" \
+                       f"📋 کد خطا: `{process.returncode}`"
+            bot.send_message(chat_id, error_msg, parse_mode="Markdown")
         
         # Delete temporary file
         try:
@@ -279,7 +292,9 @@ def run_restore_process(file_path, chat_id):
             print(f"Error deleting temporary file: {str(e)}")
             
     except Exception as e:
-        bot.send_message(chat_id, f"❌ خطا در اجرای اسکریپت بازیابی: {str(e)}")
+        error_msg = f"❌ *خطا در اجرای اسکریپت بازیابی*\n\n" \
+                   f"🔴 خطای سیستمی: `{str(e)}`"
+        bot.send_message(chat_id, error_msg, parse_mode="Markdown")
         # Try to delete temporary file on error
         try:
             os.remove(file_path)
@@ -301,10 +316,10 @@ def backup_polling_thread():
             print("⚠️ Backup not performed in this check")
         
         # Calculate wait time until next check
-        wait_seconds = POLL_INTERVAL_MINUTES * 60  # Convert minutes to seconds
-        wait_minutes = POLL_INTERVAL_MINUTES
+        wait_seconds = POLL_INTERVAL_HOURS * 3600
+        wait_hours = POLL_INTERVAL_HOURS
         
-        print(f"⏳ Waiting until next check: {wait_minutes} minutes")
+        print(f"⏳ Waiting until next check: {wait_hours} hours")
         
         # Wait with periodic check for shutdown signal
         for _ in range(wait_seconds):
@@ -312,12 +327,13 @@ def backup_polling_thread():
                 break
             time.sleep(1)
 
+# Main function for Polling mode
 def main():
     """Main function for Polling mode and Telegram bot"""
     global bot, bot_token, chat_id
     
     print("🔄 Starting automatic backup polling mode")
-    print(f"   - Check interval: every {POLL_INTERVAL_MINUTES} minutes")
+    print(f"   - Check interval: every {POLL_INTERVAL_HOURS} hours")
     print(f"   - Minimum backup interval: every {MIN_INTERVAL_HOURS} hours")
     print(f"   - Backup script: {BACKUP_SCRIPT}")
     print(f"   - Restore script: {RESTORE_SCRIPT}")
@@ -340,12 +356,11 @@ def main():
         
         # Define bot commands
         def set_bot_commands():
-            """Set Telegram bot commands"""
             commands = [
                 telebot.types.BotCommand("status", "وضعیت"),
-                telebot.types.BotCommand("restore", "بازیابی"),
                 telebot.types.BotCommand("backup", "پشتیبان‌گیری"),
-                telebot.types.BotCommand("time", "تنظیم بازه بکاپ (ساعت)")
+                telebot.types.BotCommand("restore", "بازیابی"),
+                telebot.types.BotCommand("time", "تنظیم فاصله بکاپ")
             ]
             bot.set_my_commands(commands)
         
@@ -359,19 +374,24 @@ def main():
             
             # Check user permission
             if str(message.chat.id) != str(chat_id):
-                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
                 return
             
             # Send start message
-            bot.reply_to(message, "🔄 در حال شروع عملیات بکاپ‌گیری...")
-
+            start_msg = "🔄 *شروع عملیات بکاپ‌گیری*\n\n" \
+                       "⏳ لطفاً صبر کنید تا عملیات تکمیل شود..."
+            bot.reply_to(message, start_msg, parse_mode="Markdown")
+            
             # Execute backup in separate thread
             def run_backup_and_notify():
                 success = run_backup_process(force=True)
-                if success:
-                    pass
-                else:
-                    bot.send_message(message.chat.id, "❌ بکاپ با خطا مواجه شد!")
+                if not success:
+                    error_msg = "❌ *خطا در بکاپ‌گیری*\n\n" \
+                               "🔴 عملیات بکاپ با خطا مواجه شد\n" \
+                               "📋 لطفاً لاگ‌ها را بررسی کنید"
+                    bot.send_message(message.chat.id, error_msg, parse_mode="Markdown")
             
             threading.Thread(target=run_backup_and_notify).start()
         
@@ -382,26 +402,78 @@ def main():
             
             # Check user permission
             if str(message.chat.id) != str(chat_id):
-                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
                 return
             
             # Get last backup status
             config_data = load_config()
             last_backup = config_data.get('last_backup')
+            min_interval = config_data.get('min_interval_hours', MIN_INTERVAL_HOURS)
+            
+            status_msg = "📊 *وضعیت سیستم بکاپ*\n\n"
             
             if last_backup:
                 last_time = datetime.fromtimestamp(last_backup).strftime('%Y-%m-%d %H:%M:%S')
                 time_diff = time.time() - last_backup
                 hours = int(time_diff // 3600)
                 minutes = int((time_diff % 3600) // 60)
-                
-                status_msg = f"📊 وضعیت بکاپ:\n"
-                status_msg += f"   آخرین بکاپ: {last_time}\n"
-                status_msg += f"   زمان گذشته: {hours} ساعت و {minutes} دقیقه پیش"
+                status_msg += f"✅ *آخرین بکاپ:*\n" \
+                             f"📅 *تاریخ:* `{last_time}`\n" \
+                             f"⏰ *زمان:* `{hours}` ساعت و `{minutes}` دقیقه پیش\n\n"
             else:
-                status_msg = "📊 هنوز بکاپی انجام نشده است."
+                status_msg += "⚠️ *وضعیت:* هنوز بکاپی انجام نشده است\n\n"
             
-            bot.reply_to(message, status_msg)
+            status_msg += f"⚙️ *تنظیمات:*\n" \
+                         f"🕐 حداقل فاصله: `{min_interval}` ساعت\n" \
+                         f"🔄 چک خودکار: هر `{POLL_INTERVAL_HOURS}` ساعت"
+            
+            bot.reply_to(message, status_msg, parse_mode="Markdown")
+        
+        @bot.message_handler(commands=['time'])
+        def handle_time_command(message):
+            """Handle /time command to set backup interval"""
+            global chat_id
+            
+            # Check user permission
+            if str(message.chat.id) != str(chat_id):
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
+                return
+            
+            parts = message.text.split()
+            if len(parts) < 2 or not parts[1].isdigit():
+                help_msg = "⚙️ *تنظیم فاصله زمانی*\n\n" \
+                          "📝 لطفاً یک عدد صحیح به عنوان فاصله زمانی (ساعت) وارد کنید\n\n" \
+                          "💡 *مثال:* `/time 8`"
+                bot.reply_to(message, help_msg, parse_mode="Markdown")
+                return
+            
+            new_interval = int(parts[1])
+            if new_interval <= 0:
+                error_msg = "❌ *خطا در مقدار*\n\n" \
+                           "🔴 فاصله زمانی باید عددی بزرگتر از صفر باشد"
+                bot.reply_to(message, error_msg, parse_mode="Markdown")
+                return
+            
+            # Load, update, and save config
+            config_data = load_config()
+            config_data['min_interval_hours'] = new_interval
+            if save_config(config_data):
+                # Update the global variable as well
+                global MIN_INTERVAL_HOURS
+                MIN_INTERVAL_HOURS = new_interval
+                success_msg = f"✅ *تنظیمات بروزرسانی شد*\n\n" \
+                             f"🕐 حداقل فاصله زمانی: `{new_interval}` ساعت\n" \
+                             f"💾 تنظیمات ذخیره شد"
+                bot.reply_to(message, success_msg, parse_mode="Markdown")
+            else:
+                error_msg = "❌ *خطا در ذخیره*\n\n" \
+                           "🔴 خطا در ذخیره تنظیمات\n" \
+                           "📋 لطفاً لاگ‌ها را بررسی کنید"
+                bot.reply_to(message, error_msg, parse_mode="Markdown")
         
         @bot.message_handler(commands=['restore'])
         def handle_restore_command(message):
@@ -410,82 +482,48 @@ def main():
             
             # Check user permission
             if str(message.chat.id) != str(chat_id):
-                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
                 return
             
             # Set user state to waiting for file
             user_states[message.chat.id] = 'waiting_restore'
             
             # Send guide message
-            bot.reply_to(message, 
-                        "⚠️ هشدار بسیار مهم: عملیات بازیابی دیتابیس موجود را حذف کرده و با بکاپ جدید جایگزین خواهد کرد.\n\n"
-                        "لطفاً فایل بکاپ معتبر را ارسال کنید. فرمت‌های پشتیبانی شده:\n"
-                        "1. فایل‌های با پسوند .bak\n"
-                        "2. فایل‌های با پسوند .dump.gz\n\n"
-                        "برای لغو عملیات، دستور /cancel را ارسال کنید.")
+            guide_msg = "⚠️ *هشدار بسیار مهم*\n\n" \
+                       "🔴 عملیات بازیابی دیتابیس موجود را حذف کرده و با بکاپ جدید جایگزین خواهد کرد\n\n" \
+                       "📎 *فرمت‌های پشتیبانی شده:*\n" \
+                       "• `.bak`\n" \
+                       "• `.dump.gz`\n\n" \
+                       "📤 لطفاً فایل بکاپ معتبر را ارسال کنید\n\n" \
+                       "❌ برای لغو:"
+                       "/cancel"
+            
+            bot.reply_to(message, guide_msg, parse_mode="Markdown")
         
         @bot.message_handler(commands=['cancel'])
         def handle_cancel_command(message):
-            """Handle /cancel command in Telegram"""
+            """Handle cancel command in Telegram"""
             global user_states
             
             # Check user permission
             if str(message.chat.id) != str(chat_id):
-                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
                 return
             
             # Check user state
             if user_states.get(message.chat.id) == 'waiting_restore':
                 user_states[message.chat.id] = None
-                bot.reply_to(message, "✅ عملیات بازیابی لغو شد.")
+                cancel_msg = "✅ *عملیات لغو شد*\n\n" \
+                           "🔄 عملیات بازیابی با موفقیت لغو شد"
+                bot.reply_to(message, cancel_msg, parse_mode="Markdown")
             else:
-                bot.reply_to(message, "❌ هیچ عملیات فعال برای لغو وجود ندارد.")
-        
-        @bot.message_handler(commands=['time'])
-        def handle_time_command(message):
-            global chat_id, config, MIN_INTERVAL_HOURS
-            
-            # Check user permission
-            if str(message.chat.id) != str(chat_id):
-                bot.reply_to(message, "❌ شما مجوز اجرای این دستور را ندارید!")
-                return
-            
-            # Extract the numeric value from the command
-            try:
-                command_text = message.text.split()
-                if len(command_text) != 2:
-                    bot.reply_to(message,
-                    "❌ دستور را به همراه مقدار عددی وارد کنید.\n"
-                    "مثال:\n"
-                    "/time 24"
-                    )
-                    return
-                
-                new_interval = float(command_text[1])
-                # Validation for natural (correct and positive)
-                if new_interval <= 0 or new_interval != int(new_interval):
-                    bot.reply_to(message,
-                    "❌ مقدار باید یک عدد طبیعی (صحیح و مثبت) باشد!\n"
-                    "مثال:\n"
-                    "/time 24"
-                    )
-                    return
-                
-                new_interval = int(new_interval)
-                # Update MIN_INTERVAL_HOURS and save to config
-                with config_lock:
-                    MIN_INTERVAL_HOURS = new_interval
-                    config['min_interval_hours'] = new_interval
-                    if save_config(config):
-                        bot.reply_to(message, f"✅ بازه حداقل بکاپ به {new_interval} ساعت تنظیم شد.")
-                    else:
-                        bot.reply_to(message, "❌ خطا در ذخیره تنظیمات!")
-                        
-            except ValueError:
-                bot.reply_to(message,
-                "❌ دستور را با یک مقدار عددی معتبر وارد کنید.\n"
-                "مثال:\n"
-                "/time 24")
+                no_operation_msg = "❌ *هیچ عملیات فعال نیست*\n\n" \
+                                  "⚪ هیچ عملیات فعال برای لغو وجود ندارد"
+                bot.reply_to(message, no_operation_msg, parse_mode="Markdown")
         
         @bot.message_handler(content_types=['document'])
         def handle_document(message):
@@ -506,30 +544,46 @@ def main():
             
             # Check file extension (only check type and extension)
             if not (file_name.endswith('.bak') or file_name.endswith('.dump.gz')):
-                bot.reply_to(message, "❌ پسوند فایل معتبر نیست. لطفاً فایلی با پسوند .bak یا .dump.gz ارسال کنید.")
+                invalid_format_msg = "❌ *فرمت فایل نامعتبر*\n\n" \
+                                    "🔴 پسوند فایل معتبر نیست\n\n" \
+                                    "✅ *فرمت‌های مجاز:*\n" \
+                                    "• `.bak`\n" \
+                                    "• `.dump.gz`"
+                bot.reply_to(message, invalid_format_msg, parse_mode="Markdown")
                 return
             
             # Download file
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            # Save file in temporary directory
-            file_path = os.path.join(TEMP_DIR, file_name)
-            with open(file_path, 'wb') as f:
-                f.write(downloaded_file)
-            
-            # Reset user state
-            user_states[message.chat.id] = None
-            
-            # Send start message
-            bot.reply_to(message,
-            "🔄 در حال شروع عملیات بازیابی دیتابیس...\n\n"
-            f"فایل بکاپ: {file_name}\n\n"
-            "⚠️ هشدار: این عملیات ممکن است چند دقیقه طول بکشد.\n"
-            "لطفاً صبور باشید و از ارسال دستورات جدید خودداری کنید."
-            )
-            
-            # Execute restore in separate thread
-            threading.Thread(target=run_restore_process, args=(file_path, message.chat.id)).start()
+            try:
+                downloaded_file = bot.download_file(file_info.file_path)
+                
+                # Save file in temporary directory
+                file_path = os.path.join(TEMP_DIR, file_name)
+                with open(file_path, 'wb') as f:
+                    f.write(downloaded_file)
+                
+                # Reset user state
+                user_states[message.chat.id] = None
+                
+                # Get file size for display
+                file_size = len(downloaded_file)
+                file_size_mb = round(file_size / (1024 * 1024), 2)
+                
+                # Send start message
+                start_restore_msg = f"🔄 *شروع عملیات بازیابی*\n\n" \
+                                  f"📁 *فایل:* `{file_name}`\n" \
+                                  f"📊 *حجم:* `{file_size_mb} MB`\n\n" \
+                                  f"⏳ *توجه:* این عملیات ممکن است چند دقیقه طول بکشد\n" \
+                                  f"🚫 لطفاً از ارسال دستورات جدید خودداری کنید"
+                
+                bot.reply_to(message, start_restore_msg, parse_mode="Markdown")
+                
+                # Execute restore in separate thread
+                threading.Thread(target=run_restore_process, args=(file_path, message.chat.id)).start()
+                
+            except Exception as e:
+                download_error_msg = f"❌ *خطا در دانلود فایل*\n\n" \
+                                   f"🔴 خطا: `{str(e)}`"
+                bot.reply_to(message, download_error_msg, parse_mode="Markdown")
         
         # Start Telegram bot in separate thread
         def bot_polling():
