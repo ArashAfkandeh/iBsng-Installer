@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+
 # ======================================================================== #
 # Python version with Telegram integration, time control, and Polling mode #
 # ======================================================================== #
+
 import os
 import subprocess
 import time
@@ -23,12 +25,11 @@ DB_USER = "ibs"
 DB_NAME = "IBSng"
 RETENTION_DAYS = 3
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-MIN_INTERVAL_HOURS = 2  # Minimum interval between backups (in hours)
-POLL_INTERVAL_HOURS = 1  # Check interval (in hours)
+MIN_INTERVAL_HOURS = 24  # Minimum interval between backups (in hours)
+POLL_INTERVAL_MINUTES = 20  # Check interval (in minutes)
 BACKUP_SCRIPT = os.path.join(BASE_DIR, "backup_ibsng.sh")  # Path to backup bash script
 RESTORE_SCRIPT = os.path.join(BASE_DIR, "restore_ibsng.sh")  # Path to restore bash script
 TEMP_DIR = "/tmp/ibsng_restore"  # Temporary directory for restore files
-# -----------------
 
 # Global variables for graceful shutdown
 shutdown_flag = False
@@ -316,10 +317,10 @@ def backup_polling_thread():
             print("⚠️ Backup not performed in this check")
         
         # Calculate wait time until next check
-        wait_seconds = POLL_INTERVAL_HOURS * 3600
-        wait_hours = POLL_INTERVAL_HOURS
+        wait_seconds = POLL_INTERVAL_MINUTES * 60
+        wait_minutes = POLL_INTERVAL_MINUTES
         
-        print(f"⏳ Waiting until next check: {wait_hours} hours")
+        print(f"⏳ Waiting until next check: {wait_minutes} minutes")
         
         # Wait with periodic check for shutdown signal
         for _ in range(wait_seconds):
@@ -333,7 +334,7 @@ def main():
     global bot, bot_token, chat_id
     
     print("🔄 Starting automatic backup polling mode")
-    print(f"   - Check interval: every {POLL_INTERVAL_HOURS} hours")
+    print(f"   - Check interval: every {POLL_INTERVAL_MINUTES} minutes")
     print(f"   - Minimum backup interval: every {MIN_INTERVAL_HOURS} hours")
     print(f"   - Backup script: {BACKUP_SCRIPT}")
     print(f"   - Restore script: {RESTORE_SCRIPT}")
@@ -427,7 +428,7 @@ def main():
             
             status_msg += f"⚙️ *تنظیمات:*\n" \
                          f"🕐 حداقل فاصله: `{min_interval}` ساعت\n" \
-                         f"🔄 چک خودکار: هر `{POLL_INTERVAL_HOURS}` ساعت"
+                         f"🔄 چک خودکار: هر `{POLL_INTERVAL_MINUTES}` دقیقه"
             
             bot.reply_to(message, status_msg, parse_mode="Markdown")
         
