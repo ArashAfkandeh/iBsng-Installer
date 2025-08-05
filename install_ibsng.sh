@@ -101,7 +101,7 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   echo "Waiting for the temporary container to complete initial database setup..."
   # Poll for the presence of a running postgres process.  Once the process
   # exists, we assume the initialisation phase has finished.
-  for i in {1..30}; do
+  for i in {1..20}; do
     if docker exec ibsng_tmp pgrep -x postgres > /dev/null 2>&1; then
       # Give the service a little extra time to finish writing files
       sleep 5
@@ -151,9 +151,22 @@ read_with_timeout() {
     echo -e "\e[33m${prompt}\e[0m" >&2
     echo -e "\e[32mYou have ${timeout} seconds to enter a custom port or press Enter to use default (${default_value}).\e[0m" >&2
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    
+
+    # Start countdown in the background
+    (
+        for ((i=$timeout; i>=0; i--)); do
+            echo -ne "\e[31mTime remaining: $i seconds\r\e[0m" >&2
+            sleep 1
+        done
+    ) &
+    local countdown_pid=$!
+
     # Use read with timeout, reading directly from terminal
     if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Stop the countdown
+        kill $countdown_pid 2>/dev/null || true
+        echo -ne "\033[K" >&2 # Clear the countdown line
+
         # Input was provided within timeout (including empty input)
         if [ -z "$response" ]; then
             echo -e "\e[32mUsing default value: $default_value\e[0m" >&2
@@ -166,13 +179,16 @@ read_with_timeout() {
             echo "$response"
         fi
     else
+        # Stop the countdown
+        kill $countdown_pid 2>/dev/null || true
+        echo -ne "\033[K" >&2 # Clear the countdown line
+
         # Only timeout occurred (not user pressing Enter)
         echo "" >&2
         echo -e "\e[31mTimeout reached, using default value: $default_value\e[0m" >&2
         echo "$default_value"
     fi
 }
-
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
 WEB_PORT=${1:-""}
 RADIUS_AUTH_PORT=${2:-""}
@@ -358,9 +374,22 @@ read_telegram_input() {
     echo -e "\e[33m${prompt}\e[0m" >&2
     echo -e "\e[32mYou have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
-    
+
+    # Start countdown in the background
+    (
+        for ((i=$timeout; i>=0; i--)); do
+            echo -ne "\e[31mTime remaining: $i seconds\r\e[0m" >&2
+            sleep 1
+        done
+    ) &
+    local countdown_pid=$!
+
     # Use read with timeout, reading directly from terminal
     if read -t "$timeout" -r -p "${prompt}: " response </dev/tty 2>/dev/null; then
+        # Stop the countdown
+        kill $countdown_pid 2>/dev/null || true
+        echo -ne "\033[K" >&2 # Clear the countdown line
+
         # Input was provided within timeout (including empty input for skip)
         if [ -z "$response" ]; then
             echo -e "\e[32mSkipped.\e[0m" >&2
@@ -370,13 +399,16 @@ read_telegram_input() {
             echo "$response"
         fi
     else
+        # Stop the countdown
+        kill $countdown_pid 2>/dev/null || true
+        echo -ne "\033[K" >&2 # Clear the countdown line
+
         # Only timeout occurred
         echo "" >&2
         echo -e "\e[31mTimeout reached, skipping.\e[0m" >&2
         echo ""
     fi
 }
-
 # Check if both token and chat_id are provided as command-line arguments
 # We assume they are the 4th and 5th arguments, after any potential port arguments.
 if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
