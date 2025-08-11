@@ -131,6 +131,37 @@ def check_backup_interval(config_data):
             return False
     return True
 
+def truncate_container_logs():
+    """Executes the log truncation command inside the Docker container."""
+    print("Executing log truncation command in the container...")
+    try:
+        # Using sh -c to handle the glob (*) correctly
+        command = [
+            "docker", "exec", CONTAINER_NAME,
+            "sh", "-c", "truncate -s 0 /var/log/IBSng/*"
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("✅ Log truncation command executed successfully.")
+        if result.stdout.strip():
+            print(f"   Output: {result.stdout.strip()}")
+        if result.stderr.strip():
+            print(f"   Stderr: {result.stderr.strip()}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error executing log truncation command:")
+        print(f"   Return code: {e.returncode}")
+        print(f"   Stderr: {e.stderr.strip()}")
+    except FileNotFoundError:
+        print("❌ Error: 'docker' command not found. Is Docker installed and in the system's PATH?")
+    except Exception as e:
+        print(f"❌ An unexpected error occurred during log truncation: {str(e)}")
+
+
 def run_backup_process(force=False):
     """Execute complete backup process using bash script"""
     with backup_lock:
@@ -185,6 +216,8 @@ def run_backup_process(force=False):
                             # Update last backup time if send was successful
                             config_data['last_backup'] = time.time()
                             save_config(config_data)
+                            # Truncate logs after successful backup and send
+                            truncate_container_logs()
                         else:
                             print("⚠️ Telegram send failed. Last backup time not updated.")
                     else:
