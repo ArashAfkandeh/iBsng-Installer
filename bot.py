@@ -132,30 +132,42 @@ def check_backup_interval(config_data):
     return True
 
 def truncate_container_logs():
-    """Executes the log truncation command inside the Docker container."""
+    """Executes the log truncation command inside the Docker container with a timeout."""
     print("Executing log truncation command in the container...")
     try:
-        # Using sh -c to handle the glob (*) correctly
         command = [
             "docker", "exec", CONTAINER_NAME,
             "sh", "-c", "truncate -s 0 /var/log/IBSng/*"
         ]
-        result = subprocess.run(
+        # Use Popen for more control and timeout
+        process = subprocess.Popen(
             command,
-            capture_output=True,
-            text=True,
-            check=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
-        print("✅ Log truncation command executed successfully.")
-        if result.stdout.strip():
-            print(f"   Output: {result.stdout.strip()}")
-        if result.stderr.strip():
-            print(f"   Stderr: {result.stderr.strip()}")
+        
+        # Wait for the process to complete with a 60-second timeout
+        stdout, stderr = process.communicate(timeout=60)
+        
+        if process.returncode == 0:
+            print("✅ Log truncation command executed successfully.")
+            if stdout.strip():
+                print(f"   Output: {stdout.strip()}")
+            if stderr.strip(): # Log stderr even on success, as some commands write info here
+                print(f"   Stderr: {stderr.strip()}")
+        else:
+            print(f"❌ Error executing log truncation command:")
+            print(f"   Return code: {process.returncode}")
+            print(f"   Stdout: {stdout.strip()}")
+            print(f"   Stderr: {stderr.strip()}")
 
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error executing log truncation command:")
-        print(f"   Return code: {e.returncode}")
-        print(f"   Stderr: {e.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        print("❌ Error: Log truncation command timed out after 60 seconds.")
+        # Ensure the process is terminated
+        process.kill()
+        # Clean up pipes
+        process.communicate()
     except FileNotFoundError:
         print("❌ Error: 'docker' command not found. Is Docker installed and in the system's PATH?")
     except Exception as e:
@@ -164,17 +176,20 @@ def truncate_container_logs():
 
 def run_backup_process(force=False):
     """Execute complete backup process using bash script"""
+    
+    # --- Step 1: Create backup within a lock ---
+    backup_file_path = None
+    telegram_send_ok = False
+    backup_successful = False
+
     with backup_lock:
-        # Load settings
         config_data = load_config()
         bot_token_local = config_data.get('bot_token')
         chat_id_local = config_data.get('chat_id')
-        
-        # Check time interval since last backup (if not forcing)
+
         if not force and not check_backup_interval(config_data):
             return False
-        
-        # Set environment variables for bash script
+
         env = os.environ.copy()
         env.update({
             'CONTAINER_NAME': CONTAINER_NAME,
@@ -182,10 +197,8 @@ def run_backup_process(force=False):
             'DB_USER': DB_USER,
             'DB_NAME': DB_NAME
         })
-        
+
         print("Starting IBSng database backup process...")
-        
-        # Execute bash backup script
         try:
             result = subprocess.run(
                 [BACKUP_SCRIPT],
@@ -194,70 +207,76 @@ def run_backup_process(force=False):
                 text=True,
                 check=True
             )
-            
-            # Extract backup file path from bash script output
-            backup_file_path = None
+
             for line in result.stdout.split('\n'):
                 if line.startswith('BACKUP_FILE_PATH='):
                     backup_file_path = line.split('=', 1)[1]
                     break
-            
+
             if backup_file_path and os.path.exists(backup_file_path) and os.path.getsize(backup_file_path) > 0:
                 print("✅ Backup created successfully:")
                 print(f"   File path: {backup_file_path}")
                 file_size = os.path.getsize(backup_file_path)
                 print(f"   File size: {file_size} bytes")
+                backup_successful = True
                 
-                try:
-                    # Send file to Telegram if settings exist
-                    if bot_token_local and chat_id_local:
-                        print("Sending file to Telegram...")
-                        if send_to_telegram(backup_file_path, bot_token_local, chat_id_local):
-                            # Update last backup time if send was successful
-                            config_data['last_backup'] = time.time()
-                            save_config(config_data)
-                            # Truncate logs after successful backup and send
-                            truncate_container_logs()
-                        else:
-                            print("⚠️ Telegram send failed. Last backup time not updated.")
-                    else:
-                        print("⚠️ Telegram settings not found. Create config.json to send files.")
-                        # Update last backup time even without Telegram
+                # Send to Telegram and update config inside the lock to maintain data consistency
+                if bot_token_local and chat_id_local:
+                    print("Sending file to Telegram...")
+                    if send_to_telegram(backup_file_path, bot_token_local, chat_id_local):
                         config_data['last_backup'] = time.time()
                         save_config(config_data)
-                finally:
-                    # --- CHANGE: Always delete the local backup file after attempting to send ---
-                    try:
-                        print(f"🗑️ Deleting local backup file: {backup_file_path}")
-                        os.remove(backup_file_path)
-                        print("✅ Local backup file deleted successfully.")
-                    except OSError as e:
-                        print(f"❌ Error deleting local backup file {backup_file_path}: {e}")
-                
-                # Delete old backups (This logic remains for other old files in the directory)
-                print(f"Deleting backups older than {RETENTION_DAYS} days...")
-                cutoff_time = time.time() - (RETENTION_DAYS * 86400)  # 86400 seconds = 1 day
-                
-                for filename in os.listdir(BACKUP_DIR):
-                    if filename.endswith('.dump.gz'):
-                        file_path = os.path.join(BACKUP_DIR, filename)
-                        if os.path.getmtime(file_path) < cutoff_time:
-                            os.remove(file_path)
-                            print(f"   Deleted old file: {filename}")
-                
-                print("✅ Old backup cleanup completed successfully.")
-                return True
+                        telegram_send_ok = True  # Flag that we should truncate logs later
+                    else:
+                        print("⚠️ Telegram send failed. Last backup time not updated.")
+                else:
+                    print("⚠️ Telegram settings not found. Create config.json to send files.")
+                    config_data['last_backup'] = time.time()
+                    save_config(config_data)
+
             else:
                 print("❌ Error: Backup file not created or size is zero.")
-                return False
-                
+                backup_successful = False
+
         except subprocess.CalledProcessError as e:
-            print(f"❌ Error executing backup script:")
-            print(f"   Error output: {e.stderr}")
+            print(f"❌ Error executing backup script: {e.stderr}")
             return False
         except Exception as e:
             print(f"❌ Error in backup process: {str(e)}")
             return False
+        finally:
+            # --- Local file cleanup ---
+            # This happens inside the lock's scope but after the main operations
+            if backup_file_path and os.path.exists(backup_file_path):
+                try:
+                    print(f"🗑️ Deleting local backup file: {backup_file_path}")
+                    os.remove(backup_file_path)
+                    print("✅ Local backup file deleted successfully.")
+                except OSError as e:
+                    print(f"❌ Error deleting local backup file {backup_file_path}: {e}")
+
+    # --- Step 2: Post-backup tasks (outside the lock) ---
+    if telegram_send_ok:
+        truncate_container_logs()
+
+    if backup_successful:
+        # --- Old backup cleanup ---
+        print(f"Deleting backups older than {RETENTION_DAYS} days...")
+        cutoff_time = time.time() - (RETENTION_DAYS * 86400)
+        try:
+            for filename in os.listdir(BACKUP_DIR):
+                if filename.endswith('.dump.gz'):
+                    file_path = os.path.join(BACKUP_DIR, filename)
+                    if os.path.getmtime(file_path) < cutoff_time:
+                        os.remove(file_path)
+                        print(f"   Deleted old file: {filename}")
+            print("✅ Old backup cleanup completed successfully.")
+        except FileNotFoundError:
+            print(f"⚠️ Backup directory {BACKUP_DIR} not found for cleanup. It might be created on first backup.")
+        except Exception as e:
+            print(f"❌ Error during old backup cleanup: {str(e)}")
+
+    return backup_successful
 
 def run_restore_process(file_path, chat_id):
     """Execute database restore process using bash script"""
