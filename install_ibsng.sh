@@ -268,16 +268,11 @@ IMAGE_NAME="epsil0n/ibsng:1.25"
 docker pull "$IMAGE_NAME"
 
 # Create paths for persistent data storage
-# First, we define the base directory, database path, backup directory, and logs directory
+# First, we define the base directory, database path, and backup directory
 BASE_DIR="/opt/ibsng"
 DATA_DIR="${BASE_DIR}/pgsql"
 BACKUP_DIR="${BASE_DIR}/backup_ibsng"
-LOGS_DIR="${BASE_DIR}/ibsng_logs"
-mkdir -p "$BASE_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOGS_DIR"
-
-# Set ownership for the logs directory so the IBSng user (UID 26) can write to it.
-chown -R 26:26 "$LOGS_DIR"
-chmod 755 "$LOGS_DIR"
+mkdir -p "$BASE_DIR" "$DATA_DIR" "$BACKUP_DIR"
 
 # ----------------------------------------------------------------------------
 # Initialize persistent PostgreSQL data if it doesn't already exist
@@ -429,7 +424,6 @@ services:
     network_mode: "host"
     volumes:
       - "${DATA_DIR}:/var/lib/pgsql"
-      - "${LOGS_DIR}:/var/log/iBsng"
 EOF
 
 echo "docker-compose.yml with network_mode:host created successfully."
