@@ -268,11 +268,12 @@ IMAGE_NAME="epsil0n/ibsng:1.25"
 docker pull "$IMAGE_NAME"
 
 # Create paths for persistent data storage
-# First, we define the base directory, database path, and backup directory
+# First, we define the base directory, database path, backup directory, and logs directory
 BASE_DIR="/opt/ibsng"
 DATA_DIR="${BASE_DIR}/pgsql"
 BACKUP_DIR="${BASE_DIR}/backup_ibsng"
-mkdir -p "$BASE_DIR" "$DATA_DIR" "$BACKUP_DIR"
+LOGS_DIR="${BASE_DIR}/logs"
+mkdir -p "$BASE_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOGS_DIR"
 
 # ----------------------------------------------------------------------------
 # Initialize persistent PostgreSQL data if it doesn't already exist
@@ -424,9 +425,18 @@ services:
     network_mode: "host"
     volumes:
       - "${DATA_DIR}:/var/lib/pgsql"
+      - "${LOGS_DIR}:/var/log/IBSng"
 EOF
 
-echo "docker-compose.yml with network_mode:host created successfully."
+echo "docker-compose.yml with network_mode:host and logs volume created successfully."
+
+# Set proper permissions for logs directory
+print_step "Setting permissions for logs directory"
+# Apache in CentOS 7 runs as user 'apache' (UID 48) and group 'apache' (GID 48)
+# We need to ensure the logs directory is writable by the web server
+chown -R 48:48 "$LOGS_DIR"
+chmod -R 755 "$LOGS_DIR"
+echo "Logs directory permissions configured for Apache user (UID 48)"
 
 # Run the service using Docker Compose
 print_step "Running the IBSng service with Docker Composer"
@@ -575,7 +585,7 @@ SERVICE_STATUS=$(systemctl is-active "$SERVICE_NAME")
 
 # Display system access information in a clean and user-friendly format
 
-print_step "🔐 System Access Information"
+print_step "🎯 System Access Information"
 
 echo -e "\n📁 To manage the service, navigate to '\e[34m${BASE_DIR}\e[0m' and use the following commands:"
 echo -e "   🛑 Stop the service: \e[33mdocker compose down\e[0m"
@@ -590,9 +600,13 @@ echo -e "   👤 Default Username: \e[33msystem\e[0m"
 echo -e "   🔑 Default Password: \e[31madmin\e[0m"
 
 echo -e "\n📡 RADIUS & Web Panel Ports:"
-echo -e "   🌍 IBSng Web Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+echo -e "   🌐 IBSng Web Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
 echo -e "   🔐 RADIUS Authentication Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
 echo -e "   📊 RADIUS Accounting Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
+
+echo -e "\n📋 Log Files:"
+echo -e "   📂 Logs Directory: \e[36m${LOGS_DIR}\e[0m"
+echo -e "   💡 Tip: Use '\e[33mtail -f ${LOGS_DIR}/*.log\e[0m' to monitor logs in real-time"
 
 # Display backup bot service status with friendly name
 if [ "$SERVICE_STATUS" = "active" ]; then
