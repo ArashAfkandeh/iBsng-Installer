@@ -6,6 +6,10 @@
 # uses the pre-built IBSng image based on CentOS 7 from the Docker Hub repository.              #
 # By running this file, Docker and Docker Compose will be installed, and then the IBSng service #
 # will be launched in a container with configurable ports and persistent data.                  #
+#                                                                                              #
+# A new optional argument allows specifying a public domain name; if provided the script will   #
+# automatically install and configure Caddy as a reverse‑proxy to provide HTTPS (Let’s Encrypt) #
+# for the IBSng web panel.                                                                     #
 # ============================================================================================= #
 
 # Check if running as root
@@ -66,10 +70,12 @@ read_with_timeout() {
     fi
 }
 
-# Check command line arguments first (1st=web, 2nd=auth, 3rd=acct)
+# Check command line arguments first (1st=web, 2nd=auth, 3rd=acct, 4th/5th=telegram, 6th=domain)
 WEB_PORT=${1:-""}
 RADIUS_AUTH_PORT=${2:-""}
 RADIUS_ACCT_PORT=${3:-""}
+# note: token/chat handled later, domain captured here
+DOMAIN=${6:-""}
 
 # If any port is not provided in arguments, ask interactively
 if [ -z "$WEB_PORT" ]; then
@@ -96,6 +102,16 @@ if [ -z "$RADIUS_ACCT_PORT" ]; then
   RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 fi
 
+# --- domain handling ---
+if [ -z "$DOMAIN" ]; then
+  echo -e "\e[31mDomain name not provided in arguments.\e[0m"
+  # ask user directly; leaving blank will skip Caddy setup
+  read -p "Enter domain name for Caddy (e.g. ibs.example.com) or leave blank to skip: " DOMAIN
+  DOMAIN=$(echo "$DOMAIN" | tr -d ' \t\n\r')
+fi
+# Export the domain as well
+export DOMAIN
+
 # Export cleaned variables
 export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
 
@@ -106,6 +122,13 @@ echo -e "\e[33mSelected ports:\e[0m"
 echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
 echo -e "\e[32mRADIUS Authentication Port: ${RADIUS_AUTH_PORT}\e[0m"
 echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
+# also show domain if any
+if [ -n "$DOMAIN" ]; then
+    echo -e "\e[32mDomain: ${DOMAIN}\e[0m"
+else
+    echo -e "\e[32mDomain: (none, HTTPS will not be configured)\e[0m"
+fi
+
 echo -e "\e[34m--------------------------------------------------\e[0m"
 # --- END: Host Network Port Validation ---
 
@@ -198,6 +221,13 @@ done
 
 # Install prerequisites
 apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip python3-venv dialog whiptail apt-utils
+
+# If a domain has been specified, install Caddy for reverse proxy/SSL
+if [ -n "$DOMAIN" ]; then
+  print_step "Installing Caddy web server for domain ${DOMAIN}"
+  # The package is available in Ubuntu repos on 22.04; this will also pull in systemd unit
+  apt-get install -y caddy
+fi
 
 # Manage CA certificates to avoid rehash warning
 print_step "Configuring CA certificates"
@@ -392,6 +422,12 @@ if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
   ufw allow ${RADIUS_ACCT_PORT}/udp comment 'IBSng RADIUS Acct'
   echo "Allowed port ${RADIUS_ACCT_PORT}/udp for RADIUS Accounting"
   
+  # if we are managing a domain, open HTTP/HTTPS for Caddy
+  if [ -n "$DOMAIN" ]; then
+    ufw allow 80/tcp comment 'Caddy HTTP'
+    ufw allow 443/tcp comment 'Caddy HTTPS'
+    echo "Allowed ports 80 and 443 for Caddy reverse proxy"
+  fi
 else
   echo "UFW is not installed or is inactive. Skipping firewall configuration."
 fi
@@ -468,6 +504,23 @@ echo "Waiting for service restart to complete..."
 sleep 10
 
 echo "IBSng service is now running and ready."
+
+# --- configure Caddy if a domain was provided ---
+if [ -n "$DOMAIN" ]; then
+  print_step "Configuring Caddy for ${DOMAIN}"
+  cat <<EOF > /etc/caddy/Caddyfile
+${DOMAIN} {
+    reverse_proxy 127.0.0.1:${WEB_PORT}
+}
+EOF
+  # reload the service so it picks up new configuration
+  if systemctl is-enabled --quiet caddy; then
+      systemctl reload caddy || systemctl restart caddy
+  else
+      systemctl enable --now caddy
+  fi
+  echo "Caddy has been configured and is serving ${DOMAIN}";
+fi
 # --- END: Docker Compose creation for Host Network ---
 
 # Set the timezone to Asia/Tehran
@@ -599,7 +652,11 @@ echo -e "   📜 View logs: \e[36mdocker compose logs -f\e[0m"
 echo -e "\n✅ IBSng has been successfully installed on this server."
 
 echo -e "\n🌐 Admin Panel Access:"
-echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+if [ -n "$DOMAIN" ]; then
+  echo -e "   🔗 URL: \e[32mhttps://${DOMAIN}/IBSng/admin/\e[0m"
+else
+  echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+fi
 echo -e "   👤 Default Username: \e[33msystem\e[0m"
 echo -e "   🔑 Default Password: \e[31madmin\e[0m"
 
