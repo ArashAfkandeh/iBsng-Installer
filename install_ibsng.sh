@@ -225,8 +225,23 @@ apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip pyt
 # If a domain has been specified, install Caddy for reverse proxy/SSL
 if [ -n "$DOMAIN" ]; then
   print_step "Installing Caddy web server for domain ${DOMAIN}"
-  # The package is available in Ubuntu repos on 22.04; this will also pull in systemd unit
-  apt-get install -y caddy
+  # Ubuntu 22.04 does not include the latest caddy package by default.  Use
+  # the official Caddy repository per https://caddyserver.com/docs/install.
+  # fall back to snap if apt fails.
+  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https || true
+  # add Caddy's GPG key and repo list
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | tee /etc/apt/trusted.gpg.d/caddy-stable.asc >/dev/null
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+  apt-get update
+  if ! apt-get install -y caddy; then
+      echo "Warning: apt failed to install caddy, trying snap as a fallback"
+      # snap may not be installed in minimal containers
+      if command -v snap >/dev/null 2>&1; then
+          snap install caddy --classic || echo "snap install failed too"
+      else
+          echo "snap is not available; please install Caddy manually"
+      fi
+  fi
 fi
 
 # Manage CA certificates to avoid rehash warning
