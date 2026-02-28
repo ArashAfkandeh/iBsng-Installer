@@ -187,6 +187,10 @@ fi
 print_step "Updating package list and installing prerequisites"
 sudo apt update -y
 
+# --- افزودن دستور جدید برای جلوگیری از صفحه تعاملی needrestart ---
+print_step "Configuring needrestart for non-interactive mode"
+sudo sed -i 's/^#\$nrconf{restart} = .*/\$nrconf{restart} = "a";/' /etc/needrestart/needrestart.conf || echo "تنظیم needrestart انجام نشد (فایل ممکن است وجود نداشته باشد)"
+
 # Remove old versions of Docker if they exist
 for pkg in docker docker.io containerd runc; do
     apt-get remove -y $pkg || true
