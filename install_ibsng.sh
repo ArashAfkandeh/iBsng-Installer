@@ -684,10 +684,10 @@ echo -e "\n✅ IBSng has been successfully installed on this server."
 
 echo -e "\n🌐 Admin Panel Access:"
 if [ -n "$DOMAIN_DIRECT" ]; then
-  echo -e "   🔗 Direct URL: \e[32mhttps://${DOMAIN_DIRECT}/IBSng/admin/\e[0m"
+  echo -e "   🔗 Direct URL: \e[32mhttps://${DOMAIN_DIRECT}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
 if [ -n "$DOMAIN_TUNNEL" ]; then
-  echo -e "   🔗 Tunnel URL: \e[32mhttps://${DOMAIN_TUNNEL}/IBSng/admin/\e[0m"
+  echo -e "   🔗 Tunnel URL: \e[32mhttps://${DOMAIN_TUNNEL}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
 if [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; then
   echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
