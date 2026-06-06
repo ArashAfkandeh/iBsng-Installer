@@ -539,7 +539,7 @@ if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
   
   if [ -n "$DOMAIN_DIRECT" ]; then
     cat <<EOF >> /etc/caddy/Caddyfile
-${DOMAIN_DIRECT} {
+${DOMAIN_DIRECT}:8443 {
     reverse_proxy 127.0.0.1:${WEB_PORT}
 }
 EOF
@@ -547,7 +547,7 @@ EOF
 
   if [ -n "$DOMAIN_TUNNEL" ]; then
     cat <<EOF >> /etc/caddy/Caddyfile
-${DOMAIN_TUNNEL} {
+${DOMAIN_TUNNEL}:8443 {
     reverse_proxy 127.0.0.1:${WEB_PORT}
 }
 EOF
@@ -559,7 +559,7 @@ EOF
   else
       systemctl enable --now caddy
   fi
-  echo "Caddy has been configured and is serving dockets/domains.";
+  echo "Caddy has been configured and is serving dockets/domains on port 8443.";
 fi
 # --- END: Docker Compose creation ---
 
