@@ -206,8 +206,8 @@ echo -e "\e[34m--------------------------------------------------\e[0m"
 # --- START: Telegram Bot Config (Interactive Part) ---
 print_step "Configuring Telegram Bot for Backups (Optional)"
 echo -e "\e[34m--------------------------------------------------\e[0m"
-echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID>\e[0m"
-echo -e "\e[32mYou will be prompted to enter the Telegram Bot Token and Chat ID if not provided as arguments.\e[0m"
+echo -e "\e[33mYou can provide credentials as arguments: ./script.sh [args...] <TOKEN> <CHAT_ID(S)>\e[0m"
+echo -e "\e[32mYou will be prompted to enter the Telegram Bot Token and Chat ID(s) if not provided as arguments.\e[0m"
 echo -e "\e[34m--------------------------------------------------\e[0m"
 
 # Define the timeout for interactive prompts
@@ -227,9 +227,9 @@ read_telegram_input() {
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
     echo -e "\e[33m${prompt}\e[0m" >&2
     if [[ "$prompt" == *"Bot Token"* ]]; then
-        echo -e "\e[32mGet your Telegram Bot Token from \e[36mt.me/BotFather\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+        echo -e "Get your Telegram Bot Token from \e[36mt.me/BotFather\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
     else
-        echo -e "\e[32mGet your Telegram Chat ID from \e[36mt.me/chatIDrobot\e[32m. You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
+        echo -e "Get your Telegram Chat ID(s) from \e[36mt.me/chatIDrobot\e[32m. For multiple IDs, separate them with commas (e.g., 111,222). You have ${timeout} seconds to enter the value or press Enter to skip.\e[0m" >&2
     fi
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
     
@@ -253,7 +253,7 @@ read_telegram_input() {
 
 # Check if both token and chat_id are provided as command-line arguments
 if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
-  echo -e "\e[32mUsing Telegram Bot Token and Chat ID from command-line arguments.\e[0m"
+  echo -e "\e[32mUsing Telegram Bot Token and Chat ID(s) from command-line arguments.\e[0m"
   TELEGRAM_BOT_TOKEN="$4"
   CHAT_ID="$5"
 else
@@ -265,7 +265,7 @@ else
 
   # Only ask for Chat ID if a Token was provided
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    CHAT_ID=$(read_telegram_input "Enter your Telegram Chat ID" "$TIMEOUT")
+    CHAT_ID=$(read_telegram_input "Enter Telegram Chat ID(s)" "$TIMEOUT")
     
     # If chat ID is empty, clear the token as well
     if [ -z "$CHAT_ID" ]; then
@@ -594,10 +594,13 @@ done
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
   CONFIG_FILE="${BACKUP_DIR}/config.json"
 
+  # Clean spaces and convert comma-separated string to standard JSON array format
+  FORMATTED_CHAT_IDS=$(echo "$CHAT_ID" | sed 's/[[:space:]]//g' | sed 's/,/, /g')
+
   cat <<EOF > "$CONFIG_FILE"
 {
   "bot_token": "$TELEGRAM_BOT_TOKEN",
-  "chat_id": "$CHAT_ID"
+  "chat_ids": [$FORMATTED_CHAT_IDS]
 }
 EOF
 
