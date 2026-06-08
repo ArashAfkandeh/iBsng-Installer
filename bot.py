@@ -40,18 +40,29 @@ user_states = {}  # User states in Telegram
 # Initial configuration loading
 config = {}
 bot_token = None
-chat_id = None
+chat_ids = []  # List of authorized chat IDs
 
 def load_config():
     """Load settings from config file"""
-    global config, bot_token, chat_id
+    global config, bot_token, chat_ids
     try:
         with config_lock:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     bot_token = config.get('bot_token')
-                    chat_id = config.get('chat_id')
+                    
+                    # Support both single chat_id (backward compatibility) and multiple chat_ids
+                    raw_ids = config.get('chat_ids')
+                    if raw_ids is None:
+                        raw_ids = config.get('chat_id')
+                    
+                    if isinstance(raw_ids, list):
+                        chat_ids = [str(cid).strip() for cid in raw_ids if cid]
+                    elif raw_ids is not None:
+                        chat_ids = [str(raw_ids).strip()]
+                    else:
+                        chat_ids = []
             return config
     except Exception as e:
         print(f"❌ Error reading config file: {str(e)}")
@@ -74,8 +85,12 @@ def signal_handler(sig, frame):
     print("\n⚠️ Shutdown signal received. Gracefully exiting...")
     shutdown_flag = True
 
-def send_to_telegram(file_path, bot_token, chat_id):
-    """Send file to Telegram with Persian date caption using curl"""
+def send_to_telegram(file_path, bot_token, chat_ids_list):
+    """Send file to Telegram with Persian date caption to multiple chat IDs using curl with rate-limit delays"""
+    if not chat_ids_list:
+        print("⚠️ No chat IDs configured to send backup.")
+        return False
+
     try:
         # Get current time in Persian (Shamsi) calendar
         persian_date = jdatetime.datetime.now().strftime("%Y/%m/%d")
@@ -85,31 +100,44 @@ def send_to_telegram(file_path, bot_token, chat_id):
                  f"🕐 *زمان:* `{persian_time}`\n\n" \
                  f"✅ *وضعیت:* بکاپ با موفقیت انجام شد"
         
-        command = [
-            'curl',
-            '-X', 'POST',
-            f"https://api.telegram.org/bot{bot_token}/sendDocument",
-            '-F', f'chat_id={chat_id}',
-            '-F', f'document=@{file_path}',
-            '-F', f'caption={caption}',
-            '-F', 'parse_mode=Markdown'
-        ]
+        any_success = False
         
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        response = json.loads(result.stdout)
-        
-        if response.get('ok'):
-            print("✅ Backup file successfully sent to Telegram with Persian date caption.")
-            return True
-        else:
-            print(f"❌ Error sending to Telegram: {response.get('description', 'Unknown error')}")
-            return False
+        for i, cid in enumerate(chat_ids_list):
+            command = [
+                'curl',
+                '-s',  # Silent mode to keep the console clean
+                '-X', 'POST',
+                f"https://api.telegram.org/bot{bot_token}/sendDocument",
+                '-F', f'chat_id={cid}',
+                '-F', f'document=@{file_path}',
+                '-F', f'caption={caption}',
+                '-F', 'parse_mode=Markdown'
+            ]
             
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error executing curl: {e.stderr}")
-        return False
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, check=True)
+                response = json.loads(result.stdout)
+                
+                if response.get('ok'):
+                    print(f"✅ Backup file successfully sent to Telegram (Chat ID: {cid}).")
+                    any_success = True
+                else:
+                    print(f"❌ Error sending to Telegram (Chat ID: {cid}): {response.get('description', 'Unknown error')}")
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Error executing curl for Chat ID {cid}: {e.stderr}")
+            except Exception as e:
+                print(f"❌ Error sending to Chat ID {cid}: {str(e)}")
+            
+            # Apply effective delay to prevent Telegram rate limit violations,
+            # but only if there are more IDs left to process in the list.
+            if i < len(chat_ids_list) - 1:
+                print(f"⏳ Waiting 2 seconds to comply with Telegram rate limits...")
+                time.sleep(2.0)
+                
+        return any_success
+            
     except Exception as e:
-        print(f"❌ Error sending to Telegram: {str(e)}")
+        print(f"❌ Error in send_to_telegram process: {str(e)}")
         return False
 
 def check_backup_interval(config_data):
@@ -185,7 +213,18 @@ def run_backup_process(force=False):
     with backup_lock:
         config_data = load_config()
         bot_token_local = config_data.get('bot_token')
-        chat_id_local = config_data.get('chat_id')
+        
+        # Support both single chat_id and multiple chat_ids in backup process
+        raw_ids = config_data.get('chat_ids')
+        if raw_ids is None:
+            raw_ids = config_data.get('chat_id')
+        
+        if isinstance(raw_ids, list):
+            chat_ids_local = [str(cid).strip() for cid in raw_ids if cid]
+        elif raw_ids is not None:
+            chat_ids_local = [str(raw_ids).strip()]
+        else:
+            chat_ids_local = []
 
         if not force and not check_backup_interval(config_data):
             return False
@@ -221,16 +260,16 @@ def run_backup_process(force=False):
                 backup_successful = True
                 
                 # Send to Telegram and update config inside the lock to maintain data consistency
-                if bot_token_local and chat_id_local:
+                if bot_token_local and chat_ids_local:
                     print("Sending file to Telegram...")
-                    if send_to_telegram(backup_file_path, bot_token_local, chat_id_local):
+                    if send_to_telegram(backup_file_path, bot_token_local, chat_ids_local):
                         config_data['last_backup'] = time.time()
                         save_config(config_data)
                         telegram_send_ok = True  # Flag that we should truncate logs later
                     else:
                         print("⚠️ Telegram send failed. Last backup time not updated.")
                 else:
-                    print("⚠️ Telegram settings not found. Create config.json to send files.")
+                    print("⚠️ Telegram settings not found or empty. Create config.json to send files.")
                     config_data['last_backup'] = time.time()
                     save_config(config_data)
 
@@ -246,7 +285,6 @@ def run_backup_process(force=False):
             return False
         finally:
             # --- Local file cleanup ---
-            # This happens inside the lock's scope but after the main operations
             if backup_file_path and os.path.exists(backup_file_path):
                 try:
                     print(f"🗑️ Deleting local backup file: {backup_file_path}")
@@ -383,7 +421,7 @@ def backup_polling_thread():
 # Main function for Polling mode
 def main():
     """Main function for Polling mode and Telegram bot"""
-    global bot, bot_token, chat_id
+    global bot, bot_token, chat_ids
     
     print("🔄 Starting automatic backup polling mode")
     print(f"   - Check interval: every {POLL_INTERVAL_MINUTES} minutes")
@@ -410,6 +448,7 @@ def main():
         # Define bot commands
         def set_bot_commands():
             commands = [
+                telebot.types.BotCommand("start", "راهنمای شروع"),
                 telebot.types.BotCommand("status", "وضعیت"),
                 telebot.types.BotCommand("backup", "پشتیبان‌گیری"),
                 telebot.types.BotCommand("restore", "بازیابی"),
@@ -420,13 +459,38 @@ def main():
         # Set bot commands
         set_bot_commands()
         
+        @bot.message_handler(commands=['start'])
+        def handle_start_command(message):
+            """Handle /start command in Telegram"""
+            global chat_ids
+            load_config()
+            
+            # Check user permission
+            if str(message.chat.id) not in chat_ids:
+                unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
+                                 "❌ شما مجوز اجرای این دستور را ندارید"
+                bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
+                return
+            
+            welcome_msg = "👋 *به ربات مدیریت بکاپ IBSng خوش آمدید*\n\n" \
+                          "🤖 این ربات برای مدیریت خودکار، پشتیبان‌گیری دستی و بازیابی دیتابیس IBSng طراحی شده است.\n\n" \
+                          "🛠️ *لیست دستورات فعال برای شما:*\n" \
+                          "📊 /status - نمایش وضعیت بکاپ و تنظیمات سیستم\n" \
+                          "🔄 /backup - شروع عملیات بکاپ‌گیری دستی\n" \
+                          "⚙️ /restore - شروع عملیات بازیابی دیتابیس (با ارسال فایل پشتیبان)\n" \
+                          "🕐 /time - تنظیم حداقل فاصله زمانی بین بکاپ‌ها به ساعت\n\n" \
+                          "ℹ️ سیستم به صورت خودکار در فواصل مشخص عملیات بررسی و تهیه بکاپ را انجام می‌دهد."
+            
+            bot.reply_to(message, welcome_msg, parse_mode="Markdown")
+        
         @bot.message_handler(commands=['backup'])
         def handle_backup_command(message):
             """Handle /backup command in Telegram"""
-            global chat_id
+            global chat_ids
+            load_config()  # Dynamic reload to ensure up-to-date user permissions
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
                                  "❌ شما مجوز اجرای این دستور را ندارید"
                 bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
@@ -451,10 +515,11 @@ def main():
         @bot.message_handler(commands=['status'])
         def handle_status_command(message):
             """Handle /status command in Telegram"""
-            global chat_id
+            global chat_ids
+            load_config()
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
                                  "❌ شما مجوز اجرای این دستور را ندارید"
                 bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
@@ -482,17 +547,19 @@ def main():
             
             status_msg += f"⚙️ *تنظیمات:*\n" \
                          f"🕐 حداقل فاصله: `{min_interval}` ساعت\n" \
-                         f"🔄 چک خودکار: هر `{POLL_INTERVAL_MINUTES}` دقیقه"
+                         f"🔄 چک خودکار: هر `{POLL_INTERVAL_MINUTES}` دقیقه\n" \
+                         f"👥 تعداد کاربران مجاز: `{len(chat_ids)}` کاربر"
             
             bot.reply_to(message, status_msg, parse_mode="Markdown")
         
         @bot.message_handler(commands=['time'])
         def handle_time_command(message):
             """Handle /time command to set backup interval"""
-            global chat_id
+            global chat_ids
+            load_config()
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
                                  "❌ شما مجوز اجرای این دستور را ندارید"
                 bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
@@ -533,10 +600,11 @@ def main():
         @bot.message_handler(commands=['restore'])
         def handle_restore_command(message):
             """Handle /restore command in Telegram"""
-            global chat_id, user_states
+            global chat_ids, user_states
+            load_config()
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
                                  "❌ شما مجوز اجرای این دستور را ندارید"
                 bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
@@ -560,10 +628,11 @@ def main():
         @bot.message_handler(commands=['cancel'])
         def handle_cancel_command(message):
             """Handle cancel command in Telegram"""
-            global user_states
+            global user_states, chat_ids
+            load_config()
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 unauthorized_msg = "🚫 *دسترسی غیرمجاز*\n\n" \
                                  "❌ شما مجوز اجرای این دستور را ندارید"
                 bot.reply_to(message, unauthorized_msg, parse_mode="Markdown")
@@ -583,10 +652,11 @@ def main():
         @bot.message_handler(content_types=['document'])
         def handle_document(message):
             """Handle file reception from user"""
-            global user_states
+            global user_states, chat_ids
+            load_config()
             
             # Check user permission
-            if str(message.chat.id) != str(chat_id):
+            if str(message.chat.id) not in chat_ids:
                 return
             
             # Check user state
