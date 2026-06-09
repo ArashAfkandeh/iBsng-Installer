@@ -138,31 +138,62 @@ if [ -z "$RADIUS_ACCT_PORT" ]; then
 fi
 
 # --- domains handling (Fixed to prevent absorbing script comments as input) ---
-if [ -z "$DOMAIN_DIRECT" ]; then
-  echo -e "\e[31mDirect Domain name not provided in arguments.\e[0m"
-  # ask user directly from terminal; leaving blank will skip
-  if read -r -p "Enter Direct domain name for Caddy (e.g. direct.example.com) or leave blank to skip: " DOMAIN_DIRECT </dev/tty 2>/dev/null; then
-    DOMAIN_DIRECT=$(echo "$DOMAIN_DIRECT" | tr -d ' \t\n\r')
-  else
-    DOMAIN_DIRECT=""
+INSTALL_CADDY="yes"
+
+if [ "$DOMAIN_DIRECT" = "no" ]; then
+  INSTALL_CADDY="no"
+  DOMAIN_DIRECT=""
+  DOMAIN_TUNNEL=""
+fi
+
+if [ "$INSTALL_CADDY" = "yes" ]; then
+  # If domains are not supplied in command-line arguments, ask user in interactive mode
+  if [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; then
+    echo -e "\e[31mCaddy installation option and Domain names not provided in arguments.\e[0m"
+    if read -r -p "Do you want to install and configure Caddy? (y/n) [y]: " caddy_choice </dev/tty 2>/dev/null; then
+      caddy_choice=$(echo "$caddy_choice" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\n\r')
+      if [ "$caddy_choice" = "n" ] || [ "$caddy_choice" = "no" ]; then
+        INSTALL_CADDY="no"
+      fi
+    fi
   fi
 fi
 
-if [ -z "$DOMAIN_TUNNEL" ]; then
-  echo -e "\e[31mTunnel Domain name not provided in arguments.\e[0m"
-  # ask user directly from terminal; leaving blank will skip
-  if read -r -p "Enter Tunnel domain name for Caddy (e.g. tunnel.example.com) or leave blank to skip: " DOMAIN_TUNNEL </dev/tty 2>/dev/null; then
-    DOMAIN_TUNNEL=$(echo "$DOMAIN_TUNNEL" | tr -d ' \t\n\r')
-  else
-    DOMAIN_TUNNEL=""
+if [ "$INSTALL_CADDY" = "yes" ]; then
+  if [ -z "$DOMAIN_DIRECT" ]; then
+    echo -e "\e[31mDirect Domain name not provided in arguments.\e[0m"
+    # ask user directly from terminal; leaving blank will skip
+    if read -r -p "Enter Direct domain name for Caddy (e.g. direct.example.com) or leave blank to skip: " DOMAIN_DIRECT </dev/tty 2>/dev/null; then
+      DOMAIN_DIRECT=$(echo "$DOMAIN_DIRECT" | tr -d ' \t\n\r')
+    else
+      DOMAIN_DIRECT=""
+    fi
   fi
+
+  if [ -z "$DOMAIN_TUNNEL" ]; then
+    echo -e "\e[31mTunnel Domain name not provided in arguments.\e[0m"
+    # ask user directly from terminal; leaving blank will skip
+    if read -r -p "Enter Tunnel domain name for Caddy (e.g. tunnel.example.com) or leave blank to skip: " DOMAIN_TUNNEL </dev/tty 2>/dev/null; then
+      DOMAIN_TUNNEL=$(echo "$DOMAIN_TUNNEL" | tr -d ' \t\n\r')
+    else
+      DOMAIN_TUNNEL=""
+    fi
+  fi
+
+  # If both domain names are empty, disable Caddy installation
+  if [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; then
+    INSTALL_CADDY="no"
+  fi
+else
+  DOMAIN_DIRECT=""
+  DOMAIN_TUNNEL=""
 fi
 
-# Export domains
-export DOMAIN_DIRECT DOMAIN_TUNNEL
+# Export domains and Caddy flag
+export DOMAIN_DIRECT DOMAIN_TUNNEL INSTALL_CADDY
 
 # --- Smart Port Conflict Prevention for Caddy/HTTPS ---
-if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
+if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; }; then
   if [ "$WEB_PORT" = "80" ]; then
     echo -e "\e[33mWarning: You specified a domain name for HTTPS, which requires Caddy to use port 80.\e[0m"
     echo -e "\e[33mIBSng cannot also use port 80 on the host. Finding an alternative free port...\e[0m"
@@ -187,17 +218,21 @@ echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
 echo -e "\e[32mRADIUS Authentication Port: ${RADIUS_AUTH_PORT}\e[0m"
 echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
 
-# Show domains if any
-if [ -n "$DOMAIN_DIRECT" ]; then
-    echo -e "\e[32mDirect Domain: ${DOMAIN_DIRECT}\e[0m"
-else
-    echo -e "\e[32mDirect Domain: (none)\e[0m"
-fi
+# Show domains if any and if Caddy is enabled
+if [ "$INSTALL_CADDY" = "yes" ]; then
+  if [ -n "$DOMAIN_DIRECT" ]; then
+      echo -e "\e[32mDirect Domain: ${DOMAIN_DIRECT}\e[0m"
+  else
+      echo -e "\e[32mDirect Domain: (none)\e[0m"
+  fi
 
-if [ -n "$DOMAIN_TUNNEL" ]; then
-    echo -e "\e[32mTunnel Domain: ${DOMAIN_TUNNEL}\e[0m"
+  if [ -n "$DOMAIN_TUNNEL" ]; then
+      echo -e "\e[32mTunnel Domain: ${DOMAIN_TUNNEL}\e[0m"
+  else
+      echo -e "\e[32mTunnel Domain: (none)\e[0m"
+  fi
 else
-    echo -e "\e[32mTunnel Domain: (none)\e[0m"
+  echo -e "\e[32mCaddy/Domains: Skipped (Disabled)\e[0m"
 fi
 
 echo -e "\e[34m--------------------------------------------------\e[0m"
@@ -293,8 +328,8 @@ done
 # Install prerequisites
 apt-get install -y git jq ca-certificates curl gnupg lsb-release python3-pip python3-venv dialog whiptail apt-utils
 
-# If any domain has been specified, install Caddy for reverse proxy/SSL
-if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
+# If any domain has been specified and Caddy is enabled, install Caddy for reverse proxy/SSL
+if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; }; then
   print_step "Installing Caddy web server"
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https || true
   
@@ -441,8 +476,8 @@ if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
   ufw allow ${RADIUS_ACCT_PORT}/udp comment 'IBSng RADIUS Acct'
   echo "Allowed port ${RADIUS_ACCT_PORT}/udp for RADIUS Accounting"
   
-  # if we are managing domains, open HTTP/HTTPS for Caddy
-  if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
+  # if we are managing domains with Caddy, open HTTP/HTTPS for Caddy
+  if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; }; then
     ufw allow 80/tcp comment 'Caddy HTTP'
     ufw allow 443/tcp comment 'Caddy HTTPS'
     echo "Allowed ports 80 and 443 for Caddy reverse proxy"
@@ -454,7 +489,7 @@ fi
 # Validate each required port
 if ! check_port ${WEB_PORT} "tcp"; then
   HAS_ANY_DOMAIN=0
-  if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
+  if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; }; then
      HAS_ANY_DOMAIN=1
   fi
   if [ "$HAS_ANY_DOMAIN" -eq 1 ] && [ "$WEB_PORT" = "80" ]; then
@@ -530,8 +565,8 @@ sleep 10
 
 echo "IBSng service is now running and ready."
 
-# --- configure Caddy if any domain was provided ---
-if [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; then
+# --- configure Caddy if enabled and domain was provided ---
+if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TUNNEL" ]; }; then
   print_step "Configuring Caddy"
   
   # Clear existing configurations
@@ -686,13 +721,13 @@ echo -e "   📜 View logs: \e[36mdocker compose logs -f\e[0m"
 echo -e "\n✅ IBSng has been successfully installed on this server."
 
 echo -e "\n🌐 Admin Panel Access:"
-if [ -n "$DOMAIN_DIRECT" ]; then
+if [ "$INSTALL_CADDY" = "yes" ] && [ -n "$DOMAIN_DIRECT" ]; then
   echo -e "   🔗 Direct URL: \e[32mhttps://${DOMAIN_DIRECT}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
-if [ -n "$DOMAIN_TUNNEL" ]; then
+if [ "$INSTALL_CADDY" = "yes" ] && [ -n "$DOMAIN_TUNNEL" ]; then
   echo -e "   🔗 Tunnel URL: \e[32mhttps://${DOMAIN_TUNNEL}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
-if [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; then
+if [ "$INSTALL_CADDY" != "yes" ] || { [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; }; then
   echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
 
