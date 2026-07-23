@@ -6,10 +6,10 @@
 # uses the pre-built IBSng image based on CentOS 7 from the Docker Hub repository.              #
 # By running this file, Docker and Docker Compose will be installed, and then the IBSng service #
 # will be launched in a container with configurable ports and persistent data.                  #
-#                                                                                              #
+#                                                                                               #
 # A new optional argument allows specifying a public domain name; if provided the script will   #
 # automatically install and configure Caddy as a reverse‑proxy to provide HTTPS (Let’s Encrypt) #
-# for the IBSng web panel.                                                                     #
+# for the IBSng web panel.                                                                      #
 # ============================================================================================= #
 
 # Check if running as root
@@ -80,7 +80,7 @@ read_with_timeout() {
     # Show the prompt with colored lines and clear instructions
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
     echo -e "\e[33m${prompt}\e[0m" >&2
-    echo -e "\e[32mYou have ${timeout} seconds to enter a custom port or press Enter to use default (${default_value}).\e[0m" >&2
+    echo -e "\e[32mYou have ${timeout} seconds to enter a custom value or press Enter to use default (${default_value}).\e[0m" >&2
     echo -e "\e[34m--------------------------------------------------\e[0m" >&2
     
     # Use read with timeout, reading directly from terminal
@@ -89,7 +89,8 @@ read_with_timeout() {
         if [ -z "$response" ]; then
             echo -e "\e[32mUsing default value: $default_value\e[0m" >&2
             echo "$default_value"
-        elif ! [[ "$response" =~ ^[0-9]+$ ]]; then
+        # Adjusted regex to allow IP:PORT format (e.g., 127.0.0.1:80)
+        elif ! [[ "$response" =~ ^[0-9\.:]+$ ]]; then
             echo -e "\e[31mInvalid input, using default value: $default_value\e[0m" >&2
             echo "$default_value"
         else
@@ -105,19 +106,42 @@ read_with_timeout() {
 }
 
 # Check command line arguments first (1st=web, 2nd=auth, 3rd=acct, 4th/5th=telegram, 6th=domain_direct, 7th=domain_tunnel)
-WEB_PORT=${1:-""}
+ARG_WEB_PORT=${1:-""}
 RADIUS_AUTH_PORT=${2:-""}
 RADIUS_ACCT_PORT=${3:-""}
 # note: token/chat handled later, domains captured here
 DOMAIN_DIRECT=${6:-""}
 DOMAIN_TUNNEL=${7:-""}
 
-# If any port is not provided in arguments, ask interactively
+# Parse Web Port Argument (Handle optional IP binding)
+if [ -n "$ARG_WEB_PORT" ]; then
+  if [[ "$ARG_WEB_PORT" == *":"* ]]; then
+    BIND_IP="${ARG_WEB_PORT%:*}"
+    WEB_PORT="${ARG_WEB_PORT#*:}"
+  else
+    BIND_IP=""
+    WEB_PORT="$ARG_WEB_PORT"
+  fi
+else
+  BIND_IP=""
+  WEB_PORT=""
+fi
+
+# If Web Port is not provided in arguments, ask interactively
 if [ -z "$WEB_PORT" ]; then
   echo -e "\e[31mWeb port not provided in arguments.\e[0m"
-  WEB_PORT=$(read_with_timeout "Enter Web Panel Port (e.g., 80)" "$DEFAULT_WEB_PORT")
-  # Clean the result immediately
-  WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RAW_WEB_INPUT=$(read_with_timeout "Enter Web Panel Port (e.g., 80 or 127.0.0.1:8080)" "$DEFAULT_WEB_PORT")
+  
+  if [[ "$RAW_WEB_INPUT" == *":"* ]]; then
+    BIND_IP="${RAW_WEB_INPUT%:*}"
+    WEB_PORT="${RAW_WEB_INPUT#*:}"
+  else
+    BIND_IP=""
+    WEB_PORT="$RAW_WEB_INPUT"
+  fi
+  
+  # Clean the port value immediately
+  WEB_PORT=$(echo "$WEB_PORT" | tr -d '\n\r\t ' | grep -Eo '^[0-9]+')
   WEB_PORT="${WEB_PORT:-$DEFAULT_WEB_PORT}"
 fi
 
@@ -125,7 +149,7 @@ if [ -z "$RADIUS_AUTH_PORT" ]; then
   echo -e "\e[31mRADIUS Authentication port not provided in arguments.\e[0m"
   RADIUS_AUTH_PORT=$(read_with_timeout "Enter RADIUS Authentication Port (e.g., 1812)" "$DEFAULT_RADIUS_AUTH_PORT")
   # Clean the result immediately
-  RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_AUTH_PORT=$(echo "$RADIUS_AUTH_PORT" | tr -d '\n\r\t ' | grep -Eo '^[0-9]+')
   RADIUS_AUTH_PORT="${RADIUS_AUTH_PORT:-$DEFAULT_RADIUS_AUTH_PORT}"
 fi
 
@@ -133,11 +157,11 @@ if [ -z "$RADIUS_ACCT_PORT" ]; then
   echo -e "\e[31mRADIUS Accounting port not provided in arguments.\e[0m"
   RADIUS_ACCT_PORT=$(read_with_timeout "Enter RADIUS Accounting Port (e.g., 1813)" "$DEFAULT_RADIUS_ACCT_PORT")
   # Clean the result immediately
-  RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r\t ' | grep -o '^[0-9]*')
+  RADIUS_ACCT_PORT=$(echo "$RADIUS_ACCT_PORT" | tr -d '\n\r\t ' | grep -Eo '^[0-9]+')
   RADIUS_ACCT_PORT="${RADIUS_ACCT_PORT:-$DEFAULT_RADIUS_ACCT_PORT}"
 fi
 
-# --- domains handling (Fixed to prevent absorbing script comments as input) ---
+# --- domains handling ---
 INSTALL_CADDY="yes"
 
 if [ "$DOMAIN_DIRECT" = "no" ]; then
@@ -208,13 +232,17 @@ if [ "$INSTALL_CADDY" = "yes" ] && { [ -n "$DOMAIN_DIRECT" ] || [ -n "$DOMAIN_TU
 fi
 
 # Export cleaned variables
-export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT
+export WEB_PORT RADIUS_AUTH_PORT RADIUS_ACCT_PORT BIND_IP
 
 # Show selected ports
 echo ""
 echo -e "\e[34m--------------------------------------------------\e[0m"
 echo -e "\e[33mSelected ports:\e[0m"
-echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
+if [ -n "$BIND_IP" ]; then
+  echo -e "\e[32mWeb Panel Binding: ${BIND_IP}:${WEB_PORT}\e[0m"
+else
+  echo -e "\e[32mWeb Panel Port: ${WEB_PORT}\e[0m"
+fi
 echo -e "\e[32mRADIUS Authentication Port: ${RADIUS_AUTH_PORT}\e[0m"
 echo -e "\e[32mRADIUS Accounting Port: ${RADIUS_ACCT_PORT}\e[0m"
 
@@ -518,6 +546,13 @@ echo "All required ports (${WEB_PORT}/tcp, ${RADIUS_AUTH_PORT}/udp, ${RADIUS_ACC
 print_step "Creating docker-compose.yml in ${BASE_DIR}"
 COMPOSE_FILE="${BASE_DIR}/docker-compose.yml"
 
+# Format the port binding based on whether BIND_IP was provided
+if [ -n "$BIND_IP" ]; then
+    DOCKER_WEB_PORT="${BIND_IP}:${WEB_PORT}:80"
+else
+    DOCKER_WEB_PORT="${WEB_PORT}:80"
+fi
+
 cat <<EOF > "$COMPOSE_FILE"
 services:
   ibsng:
@@ -525,7 +560,7 @@ services:
     container_name: ibsng
     restart: unless-stopped
     ports:
-      - "${WEB_PORT}:80"
+      - "${DOCKER_WEB_PORT}"
       - "${RADIUS_AUTH_PORT}:1812/udp"
       - "${RADIUS_ACCT_PORT}:1813/udp"
     volumes:
@@ -727,15 +762,24 @@ fi
 if [ "$INSTALL_CADDY" = "yes" ] && [ -n "$DOMAIN_TUNNEL" ]; then
   echo -e "   🔗 Tunnel URL: \e[32mhttps://${DOMAIN_TUNNEL}:${WEB_PORT}/IBSng/admin/\e[0m"
 fi
+
 if [ "$INSTALL_CADDY" != "yes" ] || { [ -z "$DOMAIN_DIRECT" ] && [ -z "$DOMAIN_TUNNEL" ]; }; then
-  echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+  if [ "$BIND_IP" = "127.0.0.1" ] || [ "$BIND_IP" = "localhost" ]; then
+    echo -e "   🔗 URL: \e[32mhttp://127.0.0.1:${WEB_PORT}/IBSng/admin/ (Local Access Only)\e[0m"
+  else
+    echo -e "   🔗 URL: \e[32mhttp://${SERVER_IP}:${WEB_PORT}/IBSng/admin/\e[0m"
+  fi
 fi
 
 echo -e "   👤 Default Username: \e[33msystem\e[0m"
 echo -e "   🔑 Default Password: \e[31madmin\e[0m"
 
 echo -e "\n📡 RADIUS & Web Panel Ports:"
-echo -e "   🌐 IBSng Web Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+if [ -n "$BIND_IP" ]; then
+  echo -e "   🌐 IBSng Web Panel Binding (TCP): \e[36m${BIND_IP}:${WEB_PORT}\e[0m"
+else
+  echo -e "   🌐 IBSng Web Panel Port (TCP): \e[36m${WEB_PORT}\e[0m"
+fi
 echo -e "   🔐 RADIUS Authentication Port (UDP): \e[36m${RADIUS_AUTH_PORT}\e[0m"
 echo -e "   📊 RADIUS Accounting Port (UDP): \e[36m${RADIUS_ACCT_PORT}\e[0m"
 
